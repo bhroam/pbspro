@@ -606,7 +606,7 @@ node_partition_update(status *policy, node_partition *np)
 	int i;
 	int rc = 1;
 	schd_resource *res;
-	unsigned int arl_flags = USE_RESOURCE_LIST;
+	unsigned int arl_flags = USE_RESOURCE_LIST|ADD_ALL_BOOL;
 
 	if (np == NULL)
 		return 0;

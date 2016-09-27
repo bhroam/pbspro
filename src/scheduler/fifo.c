@@ -108,6 +108,7 @@
 #include "pbs_share.h"
 #include "pbs_internal.h"
 #include "limits_if.h"
+#include "buckets.h"
 
 
 #ifdef NAS
@@ -759,13 +760,14 @@ main_sched_loop(status *policy, int sd, server_info *sinfo, schd_error **rerr)
 	time_t cycle_start_time;	/* the time the cycle starts */
 	time_t cycle_end_time;		/* the time when the current cycle should end */
 	time_t cur_time;		/* the current time via time() */
+	int should_use_buckets;		/* Should use node buckets for a job */
 	nspec **ns_arr = NULL;		/* node solution for job */
 	int i;
 	int cmd;
 	int sort_again = DONT_SORT_JOBS;
 	schd_error *err;
 	schd_error *chk_lim_err;
-
+	
 
 	if (policy == NULL || sinfo == NULL || rerr == NULL)
 		return -1;
@@ -811,12 +813,16 @@ main_sched_loop(status *policy, int sd, server_info *sinfo, schd_error **rerr)
 		schdlog(PBSEVENT_DEBUG, PBS_EVENTCLASS_JOB, LOG_DEBUG,
 			njob->name, "Considering job to run");
 
-		if (njob->is_shrink_to_fit) {
-			/* Pass the suitable heuristic for shrinking */
-			ns_arr = is_ok_to_run_STF(policy, sd, sinfo, qinfo, njob, err, shrink_job_algorithm);
-		}
-		else
-			ns_arr = is_ok_to_run(policy, sd, sinfo, qinfo, njob, NO_FLAGS, err);
+		should_use_buckets = job_should_use_buckets(njob);
+
+		if (!should_use_buckets) {
+			if (njob->is_shrink_to_fit) {
+				/* Pass the suitable heuristic for shrinking */
+				ns_arr = is_ok_to_run_STF(policy, sd, sinfo, qinfo, njob, err, shrink_job_algorithm);
+			} else
+				ns_arr = is_ok_to_run(policy, sd, sinfo, qinfo, njob, NO_FLAGS, err);
+		} else
+			ns_arr = is_ok_to_run_bucket(policy, sinfo, njob, err);
 		
 		if (err->status_code == NEVER_RUN)
 			njob->can_never_run = 1;
@@ -881,7 +887,7 @@ main_sched_loop(status *policy, int sd, server_info *sinfo, schd_error **rerr)
 			sort_again = SORTED;
 			if (should_backfill_with_job(policy, sinfo, njob, num_topjobs)) {
 #endif
-				cal_rc = add_job_to_calendar(sd, policy, sinfo, njob);
+				cal_rc = add_job_to_calendar(sd, policy, sinfo, njob, should_use_buckets);
 
 				if (cal_rc > 0) { /* Success! */
 #ifdef NAS /* localmod 034 */
@@ -1568,8 +1574,16 @@ run_update_resresv(status *policy, int pbs_sd, server_info *sinfo,
 					LOG_INFO, rr->name, "Job run");
 		}
 
-
 		update_resresv_on_run(rr, ns);
+
+		if ((flags & RURR_ADD_END_EVENT)) {
+			te = create_event(TIMED_END_EVENT, rr->end, rr, NULL, NULL);
+			if (te == NULL) {
+				set_schd_error_codes(err, NOT_RUN, SCHD_ERROR);
+				return -1;
+			}
+			add_event(sinfo->calendar, te);
+		}
 
 		if (array != NULL) {
 			update_array_on_run(array->job, rr->job);
@@ -1589,6 +1603,8 @@ run_update_resresv(status *policy, int pbs_sd, server_info *sinfo,
 		if (ns != NULL) {
 			for (i = 0; ns[i] != NULL; i++) {
 				update_node_on_run(ns[i], rr);
+				if(sinfo->snodes != NULL)
+					update_snode_on_run(sinfo->snodes[ns[i]->ninfo->node_ind], sinfo->buckets, rr);
 				/* if the node is being provisioned, it's brought down in
 				 * update_node_on_run().  We need to add an event in the calendar to
 				 * bring it back up.
@@ -1615,14 +1631,7 @@ run_update_resresv(status *policy, int pbs_sd, server_info *sinfo,
 		site_update_on_run(sinfo, qinfo, resresv, ns);
 #endif /* localmod 057 */
 
-		if ((flags & RURR_ADD_END_EVENT)) {
-			te = create_event(TIMED_END_EVENT, rr->end, rr, NULL, NULL);
-			if (te == NULL) {
-				set_schd_error_codes(err, NOT_RUN, SCHD_ERROR);
-				return -1;
-			}
-			add_event(sinfo->calendar, te);
-		}
+
 	}
 	else	 { /* resresv failed to start (server rejected) -- cleanup */
 		/*
@@ -1793,6 +1802,7 @@ should_backfill_with_job(status *policy, server_info *sinfo, resource_resv *resr
  * @param[in]	policy	-	policy structure
  * @param[in]	sinfo	-	the server to find the topjob in
  * @param[in]	topjob	-	the job we want to backfill around
+ * @param[in]	use_bucekts	use the bucket algorithm to add the job to the calendar
  *
  * @retval	1	: success
  * @retval	0	: failure
@@ -1806,7 +1816,7 @@ should_backfill_with_job(status *policy, server_info *sinfo, resource_resv *resr
  */
 int
 add_job_to_calendar(int pbs_sd, status *policy, server_info *sinfo,
-	resource_resv *topjob)
+	resource_resv *topjob, int use_buckets)
 {
 	server_info *nsinfo;		/* dup'd universe to simulate in */
 	resource_resv *njob;		/* the topjob in the dup'd universe */
@@ -1818,6 +1828,7 @@ add_job_to_calendar(int pbs_sd, status *policy, server_info *sinfo,
 	timed_event *te_end;		/* end event for topjob */
 	timed_event *nexte;
 	char log_buf[MAX_LOG_SIZE];
+	int i;
 
 	if (policy == NULL || sinfo == NULL ||
 		topjob == NULL || topjob->job == NULL)
@@ -1831,15 +1842,25 @@ add_job_to_calendar(int pbs_sd, status *policy, server_info *sinfo,
 		if (find_timed_event(nexte, topjob->name, TIMED_NOEVENT, 0) != NULL)
 			return 1;
 	}
+	if (!use_buckets) {
+		if ((nsinfo = dup_server_info(sinfo)) == NULL)
+			return 0;
 
-	if ((nsinfo = dup_server_info(sinfo)) == NULL)
-		return 0;
-
-	if ((njob = find_resource_resv_by_rank(nsinfo->jobs, topjob->rank)) == NULL) {
-		free_server(nsinfo, 1);
-		return 0;
+		if ((njob = find_resource_resv_by_rank(nsinfo->jobs, topjob->rank)) == NULL) {
+			free_server(nsinfo, 1);
+			return 0;
+		}
+	} else {
+		/* don't dup the entire sinfo.  We only dup the parts we need */
+		nsinfo = sinfo;
+		njob = topjob;
+		nsinfo->truth_snodes = copy_snode_array(nsinfo->snodes);
+		if (nsinfo->cal_buckets != NULL)
+			free_node_bucket_array(nsinfo->cal_buckets);
+		nsinfo->cal_buckets = dup_node_bucket_array(sinfo->buckets, sinfo);
 	}
 
+	
 #ifdef NAS /* localmod 031 */
 	snprintf(log_buf, sizeof(log_buf), "Estimating the start time for a top job (q=%s schedselect=%.1000s).", topjob->job->queue->name, topjob->job->schedsel);
 	schdlog(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_DEBUG,
@@ -1848,8 +1869,10 @@ add_job_to_calendar(int pbs_sd, status *policy, server_info *sinfo,
 	schdlog(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_DEBUG,
 		topjob->name, "Estimating the start time for a top job.");
 #endif /* localmod 031 */
-
-	start_time = calc_run_time(njob->name, nsinfo, SIM_RUN_JOB);
+	if(!use_buckets)
+		start_time = calc_run_time(njob->name, nsinfo, SIM_RUN_JOB);
+	else
+		start_time = calc_run_time_bucket(policy, njob, nsinfo);
 
 	if (start_time > 0) {
 		/* If our top job is a job array, we don't backfill around the
@@ -1860,16 +1883,20 @@ add_job_to_calendar(int pbs_sd, status *policy, server_info *sinfo,
 		if (topjob->job->is_array) {
 			tjob = queue_subjob(topjob, sinfo, topjob->job->queue);
 			if (tjob == NULL) {
-				free_server(nsinfo, 1);
+				if(!use_buckets)
+					free_server(nsinfo, 1);
 				return 0;
 			}
-			/* Can't search by rank, we just created tjob and it has a new rank*/
-			njob = find_resource_resv(nsinfo->jobs, tjob->name);
-			if (njob == NULL) {
-				schdlog(PBSEVENT_DEBUG, PBS_EVENTCLASS_JOB, LOG_DEBUG, __func__,
-					"Can't find new subjob in simulated universe");
-				free_server(nsinfo, 1);
-				return 0;
+
+			if (!use_buckets) {
+				/* Can't search by rank, we just created tjob and it has a new rank*/
+				njob = find_resource_resv(nsinfo->jobs, tjob->name);
+				if (njob == NULL) {
+					schdlog(PBSEVENT_DEBUG, PBS_EVENTCLASS_JOB, LOG_DEBUG, __func__,
+						"Can't find new subjob in simulated universe");
+					free_server(nsinfo, 1);
+					return 0;
+				}
 			}
 			/* The subjob is just for the calendar, not for running */
 			tjob->can_not_run = 1;
@@ -1877,6 +1904,8 @@ add_job_to_calendar(int pbs_sd, status *policy, server_info *sinfo,
 		}
 		else
 			bjob = topjob;
+
+
 
 		exec = create_execvnode(njob->nspec_arr);
 		if (exec != NULL) {
@@ -1889,29 +1918,37 @@ add_job_to_calendar(int pbs_sd, status *policy, server_info *sinfo,
 				ptm->tm_hour, ptm->tm_min, ptm->tm_sec,
 				"Backfill", njob->name, exec);
 #endif /* localmod 068 */
-			bjob->nspec_arr = parse_execvnode(exec, sinfo);
+			if (!use_buckets) {
+				if (bjob->nspec_arr != NULL)
+					free_nspecs(bjob->nspec_arr);
+				bjob->nspec_arr = parse_execvnode(exec, sinfo);
+			}
 			if (bjob->nspec_arr != NULL) {
 				char *selectspec;
-				bjob->ninfo_arr =
-					create_node_array_from_nspec(bjob->nspec_arr);
+				if (!use_buckets) {
+					if (bjob->ninfo_arr != NULL)
+						free(bjob->ninfo_arr);
+					bjob->ninfo_arr =
+						create_node_array_from_nspec(bjob->nspec_arr);
+				}
 				selectspec = create_select_from_nspec(bjob->nspec_arr);
 				if (selectspec != NULL) {
 					bjob->job->execselect = parse_selspec(selectspec);
 					free(selectspec);
 				}
-			}
-			else {
-				free_server(nsinfo, 1);
+			} else {
+				if (!use_buckets)
+					free_server(nsinfo, 1);
 				return 0;
 			}
-		}
-		else {
-			free_server(nsinfo, 1);
+		} else {
+			if (!use_buckets)
+				free_server(nsinfo, 1);
 			return 0;
 		}
 
 
-		if (bjob->job->est_execvnode !=NULL)
+		if (bjob->job->est_execvnode != NULL)
 			free(bjob->job->est_execvnode);
 		bjob->job->est_execvnode = string_dup(exec);
 		bjob->job->est_start_time = start_time;
@@ -1920,14 +1957,16 @@ add_job_to_calendar(int pbs_sd, status *policy, server_info *sinfo,
 
 		te_start = create_event(TIMED_RUN_EVENT, bjob->start, bjob, NULL, NULL);
 		if (te_start == NULL) {
-			free_server(nsinfo, 1);
+			if(!use_buckets)
+				free_server(nsinfo, 1);
 			return 0;
 		}
 		add_event(sinfo->calendar, te_start);
 
 		te_end = create_event(TIMED_END_EVENT, bjob->end, bjob, NULL, NULL);
-		if (te_start == NULL) {
-			free_server(nsinfo, 1);
+		if (te_end == NULL) {
+			if(!use_buckets)
+				free_server(nsinfo, 1);
 			return 0;
 		}
 		add_event(sinfo->calendar, te_end);
@@ -1936,6 +1975,28 @@ add_job_to_calendar(int pbs_sd, status *policy, server_info *sinfo,
 			bjob->job->est_execvnode, 0) <0) {
 			schdlog(PBSEVENT_SCHED, PBS_EVENTCLASS_SCHED, LOG_WARNING,
 				bjob->name, "Failed to update estimated attrs.");
+		}
+
+		if (use_buckets) {
+			free_snode_array(nsinfo->snodes);
+			nsinfo->snodes = nsinfo->truth_snodes;
+		}
+
+		for(i = 0; bjob->nspec_arr[i] != NULL; i++) {
+			add_te_list(&(bjob->nspec_arr[i]->ninfo->node_events), te_start);
+			if (use_buckets) {
+				node_bucket *bkt;
+				int ind = bjob->nspec_arr[i]->ninfo->node_ind;
+				add_te_list(&(sinfo->snodes[ind]->node_events), te_start);
+
+				bkt = sinfo->buckets[sinfo->snodes[ind]->bucket_ind];
+				if (pbs_bitmap_get_bit(bkt->free->truth, ind)) {
+					pbs_bitmap_bit_off(bkt->free->truth, ind);
+					bkt->free->truth_ct--;
+					pbs_bitmap_bit_on(bkt->busy_later->truth, ind);
+					bkt->busy_later->truth_ct++;
+				}
+			}
 		}
 
 		if (policy->fair_share) {
@@ -1968,8 +2029,9 @@ add_job_to_calendar(int pbs_sd, status *policy, server_info *sinfo,
 		schdlog(PBSEVENT_SCHED, PBS_EVENTCLASS_JOB, LOG_WARNING, topjob->name,
 			"Error in calculation of start time of top job");
 	}
-
-	free_server(nsinfo, 1);
+	if(!use_buckets)
+		free_server(nsinfo, 1);
+	
 	return 1;
 }
 

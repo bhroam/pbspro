@@ -865,6 +865,7 @@ log_record(int eventtype, int objclass, int sev, const char *objname, const char
 	int    rc = 0;
 	FILE  *savlog;
 	static char slogbuf[LOG_BUF_SIZE];
+	char microbuf[256] = "";
 
 	
 #if SYSLOG
@@ -890,6 +891,11 @@ log_record(int eventtype, int objclass, int sev, const char *objname, const char
 	ptm = localtime(&now);
 #else
 	ptm = localtime_r(&now, &ltm);
+	if (pbs_conf.use_microsec_logging) {
+		struct timeval tv;
+		if (gettimeofday(&tv, NULL) == 0)
+			snprintf(microbuf, sizeof(microbuf), ".%d", tv.tv_usec);
+	}
 #endif
 
 	/* lock the log mutex */
@@ -914,10 +920,11 @@ log_record(int eventtype, int objclass, int sev, const char *objname, const char
 	}
 
 	if (pbs_conf.locallog != 0 || pbs_conf.syslogfac == 0) {
+			
 		rc = fprintf(logfile,
-			"%02d/%02d/%04d %02d:%02d:%02d;%04x;%s;%s;%s;%s\n",
+			"%02d/%02d/%04d %02d:%02d:%02d%s;%04x;%s;%s;%s;%s\n",
 			ptm->tm_mon+1, ptm->tm_mday, ptm->tm_year+1900,
-			ptm->tm_hour, ptm->tm_min, ptm->tm_sec,
+			ptm->tm_hour, ptm->tm_min, ptm->tm_sec, microbuf,
 			eventtype & ~PBSEVENT_FORCE,
 			msg_daemonname,
 			class_names[objclass],

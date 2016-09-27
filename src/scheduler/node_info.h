@@ -281,6 +281,7 @@ node_info *dup_node_info(node_info *onode, server_info *nsinfo, unsigned int fla
  *      find_nspec_by_name - find an nspec in an array by nodename
  */
 nspec *find_nspec_by_rank(nspec **nspec_arr, unsigned int rank);
+int find_node_ind(node_info **ninfo_arr, int rank);
 
 /*
  *
@@ -630,6 +631,17 @@ void set_current_aoe(node_info *node, char *aoe);
 
 /* check nodes for eligibility and mark them ineligible if not */
 void check_node_array_eligibility(node_info **ninfo_arr, resource_resv *resresv, place *pl, schd_error *err);
+
+/* add a node to a node array*/
+node_info **add_node_to_array(node_info **ninfo_arr, node_info *node);
+
+int add_event_to_nodes(timed_event *te, nspec **nspecs);
+
+int add_node_events(timed_event *te, void *arg1, void *arg2);
+
+void update_snode_on_run(snode *sn, node_bucket **buckets, resource_resv *resresv);
+void update_snode_on_end(snode *sn, node_bucket **buckets);
+
 
 
 #ifdef	__cplusplus

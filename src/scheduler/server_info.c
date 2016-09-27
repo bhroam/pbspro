@@ -139,6 +139,7 @@
 #include "simulate.h"
 #include "fairshare.h"
 #include "check.h"
+#include "buckets.h"
 #ifdef NAS
 #include "site_code.h"
 #endif
@@ -309,6 +310,20 @@ query_server(status *pol, int pbs_sd)
 		}
 	}
 
+	/* Create the node equivalence classes*/
+	for (i = 0; sinfo->nodes[i] != NULL; i++) {
+		node_info *ninfo = sinfo->nodes[i];
+		ninfo->nodesig = create_resource_signature(ninfo  ->res,
+			policy->resdef_to_check_no_hostvnode, CHECK_ALL_BOOLS);
+		ninfo->nodesig_ind = add_str_to_unique_array(&(sinfo->nodesigs),
+			ninfo->nodesig);
+		
+		if(ninfo->has_ghost_job)
+			create_resource_assn_for_node(ninfo);
+		sinfo->nodes[i]->node_ind = i;
+
+	}
+	
 	/* get reservations, if any - NOTE: will set sinfo -> num_resvs */
 	sinfo->resvs = query_reservations(sinfo, bs_resvs);
 
@@ -401,22 +416,15 @@ query_server(status *pol, int pbs_sd)
 	free(jobs_not_in_reservations);
 
 	collect_resvs_on_nodes(sinfo->nodes, sinfo->resvs, sinfo->num_resvs);
-	/* Create the node equivalence classes*/
-	for (i = 0; sinfo->nodes[i] != NULL; i++) {
-		node_info *ninfo = sinfo->nodes[i];
-		ninfo->nodesig = create_resource_signature(ninfo  ->res,
-			policy->resdef_to_check_no_hostvnode, CHECK_ALL_BOOLS);
-		ninfo->nodesig_ind = add_str_to_unique_array(&(sinfo->nodesigs),
-			ninfo->nodesig);
-		
-		if(ninfo->has_ghost_job)
-			create_resource_assn_for_node(ninfo);
 
-	}
 	/* Create placement sets  after collecting jobs on nodes because
 	 * we don't want to account for resources consumed by ghost jobs
 	 */
 	create_placement_sets(policy, sinfo);
+	
+	generic_sim(sinfo->calendar, TIMED_RUN_EVENT, 0, 0, add_node_events, NULL, NULL);
+	sinfo->snodes = create_snodes(sinfo->nodes);
+	sinfo->buckets = create_node_buckets(sinfo);
 
 	pbs_statfree(server);
 
@@ -977,6 +985,14 @@ free_server_info(server_info *sinfo)
 	}
 	if (sinfo->queue_list != NULL)
 		free_queue_list(sinfo->queue_list);
+	
+	if(sinfo->buckets != NULL)
+		free_node_bucket_array(sinfo->buckets);
+	
+	if(sinfo->cal_buckets != NULL)
+		free_node_bucket_array(sinfo->cal_buckets);
+	if(sinfo->snodes != NULL)
+		free_snode_array(sinfo->snodes);
 
 	free_resource_list(sinfo->res);
 #ifdef NAS
@@ -1117,6 +1133,10 @@ new_server_info(int limallocflag)
 	sinfo->job_formula = NULL;
 	sinfo->policy = NULL;
 	sinfo->fairshare = NULL;
+	sinfo->buckets = NULL;
+	sinfo->cal_buckets = NULL;
+	sinfo->truth_snodes = NULL;
+	sinfo->snodes = NULL;
 	sinfo->num_queues = 0;
 	sinfo->num_nodes = 0;
 	sinfo->num_resvs = 0;
@@ -2031,7 +2051,7 @@ dup_server_info(server_info *osinfo)
 #else
 	nsinfo->nodes = dup_nodes(osinfo->nodes, nsinfo, NO_FLAGS);
 #endif /* localmod 049 */
-
+	
 	if (nsinfo->has_nodes_assoc_queue) {
 		nsinfo->unassoc_nodes =
 			node_filter(nsinfo->nodes, nsinfo->num_nodes, is_unassoc_node, NULL, 0);
@@ -2053,6 +2073,8 @@ dup_server_info(server_info *osinfo)
 		free_server(nsinfo, 0);
 		return NULL;
 	}
+
+	nsinfo->buckets = dup_node_bucket_array(osinfo->buckets, nsinfo);
 
 	if (osinfo->queue_list != NULL) {
 		int ret_val;
@@ -2149,10 +2171,14 @@ dup_server_info(server_info *osinfo)
 	/* the running resvs are not dupped when we dup the nodes, so we need to copy
 	 * the node's running resvs arrays now
 	 */
-	for (i = 0; osinfo->nodes[i] != NULL; i++)
+	for (i = 0; osinfo->nodes[i] != NULL; i++) {
 		nsinfo->nodes[i]->run_resvs_arr =
 			copy_resresv_array(osinfo->nodes[i]->run_resvs_arr,
 			nsinfo->resvs);
+		if(nsinfo->calendar != NULL)
+			nsinfo->nodes[i]->node_events = dup_te_lists(osinfo->nodes[i]->node_events, nsinfo->calendar->next_event, 0);
+
+	}
 
 	return nsinfo;
 }
@@ -2212,7 +2238,7 @@ dup_selective_resource_list(schd_resource *res, resdef **deflist, unsigned flags
 	int i;
 
 	for (pres = res; pres != NULL; pres = pres->next) {
-		if (pres->type.is_boolean ||
+		if (((flags & ADD_ALL_BOOL) && pres->type.is_boolean) ||
 			resdef_exists_in_array(deflist, pres->def)) {
 			nres = dup_resource(pres);
 			if (nres == NULL) {
@@ -3646,6 +3672,55 @@ create_resource_assn_for_node(node_info *ninfo)
 				}
 			}
 		}
+	}
+	
+	return 1;
+}
+
+/**
+ * @brief compares two resource_avail fields for equality
+ *
+ *  * @return int
+ * @retval 1 if equal
+ * @retval 0 if not equal
+ */
+int
+compare_resource_avail(schd_resource *r1, schd_resource *r2) {
+	if(r1 == NULL && r2 == NULL)
+		return 1;
+	if(r1 == NULL || r2 == NULL)
+		return 0;
+	
+	if(r1->def->type.is_string) {
+		if(match_string_array(r1->str_avail, r2->str_avail) == SA_FULL_MATCH)
+			return 1;
+		else
+			return 0;
+	}
+	if(r1->avail == r2->avail)
+		return 1;
+	
+	return 0;
+}
+
+
+int
+compare_resource_avail_list(schd_resource *r1, schd_resource *r2) {
+	schd_resource *cur;
+	schd_resource *res;
+	
+	if(r1 == NULL && r2 == NULL)
+		return 1;
+	if(r1 == NULL || r2 == NULL)
+		return 0;
+	
+	for(cur = r1; cur != NULL; cur = cur->next) {
+		res = find_resource(r2, cur->def);
+		if(res != NULL) {
+			if(compare_resource_avail(cur,res) == 0)
+				return 0;
+		} else
+			return 0;
 	}
 	
 	return 1;

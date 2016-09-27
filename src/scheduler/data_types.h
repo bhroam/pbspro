@@ -57,6 +57,7 @@ extern "C" {
 #include <libutil.h>
 #include "constant.h"
 #include "config.h"
+#include "pbs_bitmap.h"
 #ifdef NAS
 #include "site_queue.h"
 #endif
@@ -87,6 +88,11 @@ struct event_list;
 struct status;
 struct fairshare_head;
 struct node_scratch;
+struct te_list;
+struct node_bucket;
+struct bucket_bitpool;
+struct chunk_map;
+struct snode;
 
 typedef struct state_count state_count;
 typedef struct server_info server_info;
@@ -115,6 +121,12 @@ typedef struct event_list event_list;
 typedef struct status status;
 typedef struct fairshare_head fairshare_head;
 typedef struct node_scratch node_scratch;
+typedef struct te_list te_list;
+typedef struct node_bucket node_bucket;
+typedef struct bucket_bitpool bucket_bitpool;
+typedef struct chunk_map chunk_map;
+typedef struct snode snode;
+
 #ifdef NAS
 /* localmod 034 */
 /*
@@ -339,6 +351,10 @@ struct server_info
 	 */
 	status *policy;
 	fairshare_head *fairshare;	/* root of fairshare tree */
+	snode **truth_snodes;
+	snode **snodes;
+	node_bucket **buckets;		/* node bucket array */
+	node_bucket **cal_buckets;	/* dup'd buckets used for calendaring */
 #ifdef NAS
 	/* localmod 049 */
 	node_info **nodes_by_NASrank;	/* nodes indexed by NASrank */
@@ -349,7 +365,7 @@ struct server_info
 
 struct queue_info
 {
-	unsigned is_started:1;	/* is queue started */
+	unsigned is_started:1;		/* is queue started */
 	unsigned is_exec:1;		/* is the queue an execution queue */
 	unsigned is_route:1;		/* is the queue a routing queue */
 	unsigned is_ok_to_run:1;	/* is it ok to run jobs in this queue */
@@ -360,10 +376,10 @@ struct queue_info
 	unsigned has_soft_limit:1;	/* queue has a soft user/grp limit set */
 	unsigned has_hard_limit:1;	/* queue has a hard user/grp limit set */
 	unsigned is_peer_queue:1;	/* queue is a peer queue */
-	struct server_info *server;   /* server where queue resides */
-	char *name;                   /* queue name */
-	state_count sc;               /* number of jobs in different states */
-	void *liminfo;		/* limit storage information */
+	struct server_info *server;	/* server where queue resides */
+	char *name;			/* queue name */
+	state_count sc;			/* number of jobs in different states */
+	void *liminfo;			/* limit storage information */
 	int priority;			/* priority of queue */
 #ifdef NAS
 	/* localmod 046 */
@@ -376,13 +392,13 @@ struct queue_info
 	unsigned ignore_nodect_sort:1; /* job_sort_key nodect ignored in this queue */
 #endif
 	int num_nodes;		/* number of nodes associated with queue */
-	struct schd_resource *qres;        /* list of resources on the queue */
+	struct schd_resource *qres;	/* list of resources on the queue */
 	resource_resv *resv;		/* the resv if this is a resv queue */
 	resource_resv **jobs;		/* array of jobs that reside in queue */
 	resource_resv **running_jobs;	/* array of jobs in the running state */
 	node_info **nodes;		/* array of nodes associated with the queue */
 	counts *group_counts;		/* group resource and running counts */
-	counts *project_counts;	/* project resource and running counts */
+	counts *project_counts;		/* project resource and running counts */
 	counts *user_counts;		/* user resource and running counts */
 	counts *alljobcounts;		/* overall resource and running counts */
 	/*
@@ -394,12 +410,12 @@ struct queue_info
 	counts *total_user_counts;
 	counts *total_alljobcounts;
 
-	char **node_group_key;	/* node grouping resources */
+	char **node_group_key;		/* node grouping resources */
 	struct node_partition **nodepart; /* array pointers to node partitions */
-	struct node_partition *allpart;   /* partition w/ all nodes assoc with queue*/
-	int num_parts;		/* number of node partitions(node_group_key) */
-	int num_topjobs;	/* current number of top jobs in this queue */
-	int backfill_depth;	/* total allowable topjobs in this queue*/
+	struct node_partition *allpart; /* partition w/ all nodes assoc with queue*/
+	int num_parts;			/* number of node partitions(node_group_key) */
+	int num_topjobs;		/* current number of top jobs in this queue */
+	int backfill_depth;		/* total allowable topjobs in this queue*/
 };
 
 struct job_info
@@ -577,11 +593,14 @@ struct node_info
 #endif
 
 	char *current_aoe;		/* AOE name instantiated on node */
-	char *nodesig;                /* resource signature */
-	int nodesig_ind;              /* resource signature index in server array */
+	char *nodesig;			/* resource signature */
+	int nodesig_ind;		/* resource signature index in server array */
 	node_info *svr_node;		/* ptr to svr's node if we're a resv node */
-	node_partition *hostset;      /* other vnodes on on the same host */
-	node_scratch nscr;            /* scratch space local to node search code */
+	node_partition *hostset;	/* other vnodes on on the same host */
+	node_scratch nscr;		/* scratch space local to node search code */
+	te_list *node_events;		/* list of events that affect the node */
+	int bucket_ind;			/* index in server's bucket array */
+	int node_ind;			/* node's index into sinfo->nodes */
 };
 
 struct resv_info
@@ -981,36 +1000,38 @@ struct config
 	time_t prime_spill;			/* the amount of time a job can
 						 * spill int primetime
 						 */
-	time_t nonprime_spill;		/* vise versa for prime_spill */
+	time_t nonprime_spill;			/* vise versa for prime_spill */
 	fairshare_head *fairshare;		/* fairshare tree */
 	time_t decay_time;			/*  time in seconds for the decay period*/
 	time_t sync_time;			/* time between syncing usage to disk */
 	struct t prime[HIGH_DAY][HIGH_PRIME];	/* prime time start and prime time end*/
-	int holidays[MAX_HOLIDAY_SIZE];	/* holidays in julian date */
+	int holidays[MAX_HOLIDAY_SIZE];		/* holidays in julian date */
 	int holiday_year;			/* the year the holidays are for */
-	int num_holidays;                   /* number of acuall holidays */
+	int num_holidays;			/* number of acuall holidays */
 	struct timegap ded_time[MAX_DEDTIME_SIZE];  /* dedicated times */
 	int unknown_shares;			/* unknown group shares */
-	int log_filter;			/* what events to filter out */
-	int preempt_queue_prio;		/* *HIGH* prio... jobs prempt */
+	int log_filter;				/* what events to filter out */
+	int preempt_queue_prio;			/* *HIGH* prio... jobs prempt */
 	int max_preempt_attempts;		/* max num of preempt attempts per cyc*/
-	int max_jobs_to_check;		/* max number of jobs to check in cyc*/
-	long dflt_opt_backfill_fuzzy;	/* default time for the fuzzy backfill optimization */
+	int max_jobs_to_check;			/* max number of jobs to check in cyc*/
+	long dflt_opt_backfill_fuzzy;		/* default time for the fuzzy backfill optimization */
 	char ded_prefix[PBS_MAXQUEUENAME +1];	/* prefix to dedicated queues */
 	char pt_prefix[PBS_MAXQUEUENAME +1];	/* prefix to primetime queues */
 	char npt_prefix[PBS_MAXQUEUENAME +1];	/* prefix to non primetime queues */
 	char *fairshare_res;			/* resource to calc fairshare usage */
-	float fairshare_decay_factor;			/* decay factor used when decaying fairshare tree */
+	float fairshare_decay_factor;		/* decay factor used when decaying fairshare tree */
 	char *fairshare_ent;			/* job attribute to use as fs entity */
-	char **dyn_res_to_get;		/* dynamic resources to get from moms */
+	char **dyn_res_to_get;			/* dynamic resources to get from moms */
 	char **res_to_check;			/* the resources schedule on */
-	resdef **resdef_to_check;             /* the res to schedule on in def form */
+	resdef **resdef_to_check;		/* the res to schedule on in def form */
+	char **node_bucket_res;			/* resources used to create nasa buckets*/
+	resdef **node_bucket_resdef;		/* nasa_bucket_resources as resdef */
 	char **ignore_res;			/* resources - unset implies infinite */
 	int num_res_to_check;			/* the size of res_to_check */
 	time_t max_starve;			/* starving threshold */
 	int pprio[NUM_PPRIO][2];		/* premption priority levels */
 	int preempt_low;			/* lowest preemption level */
-	int preempt_normal;                   /* preempt priority of normal_jobs */
+	int preempt_normal;			/* preempt priority of normal_jobs */
 	/* order to preempt jobs */
 	struct preempt_ordering preempt_order[PREEMPT_ORDER_MAX+1];
 	struct sort_info *prime_node_sort;	/* node sorting primetime */
@@ -1059,6 +1080,43 @@ struct timed_event
 	void *event_func_arg;		/* optional argument to function - not freed */
 	timed_event *next;
 	timed_event *prev;
+};
+
+struct te_list {
+	te_list *next;
+	timed_event *event;
+};
+
+struct bucket_bitpool {
+	pbs_bitmap *truth;
+	int truth_ct;			/* number of 1 bits in truth bitmap*/
+	pbs_bitmap *working;
+	int working_ct;			/* number of 1 bits in working bitmap */
+	pbs_bitmap *checkpoint;
+	int checkpoint_ct;		/* number of 1 bits in checkpoint bitmap */
+};
+
+struct node_bucket {
+	schd_resource *res_spec;	/* resources that describe the bucket */
+	queue_info *queue;		/* queue that nodes in the bucket are associated with */
+	pbs_bitmap *bkt_nodes;		/* bitmap of the nodes in the bucket */
+	bucket_bitpool *free;		/* bit pool of free nodes*/
+	bucket_bitpool *busy_later;	/* bit pool of nodes that are free now, but are busy later */
+	bucket_bitpool *busy;		/* bit pool of nodes that are busy now */
+	int total;			/* total number of nodes in bucket */
+	int down_offline;		/* number of nodes in bucket that are in the down or offline state */
+};
+
+struct chunk_map {
+	chunk *chunk;
+	node_bucket **bkts;		/* buckets that the chunk can run in */
+	pbs_bitmap *node_bits;		/* assignment of nodes from buckets */
+};
+
+struct snode {
+	int bucket_ind;			/* index into sinfo->buckets */
+	te_list *node_events;		/* list of run events on the node */
+	node_info *ninfo;		/* pointer back to the real node */
 };
 
 #ifdef	__cplusplus

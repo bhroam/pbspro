@@ -79,6 +79,7 @@ struct pbs_config pbs_conf = {
 	0,					/* locallog */
 	AUTH_RESV_PORT,				/* default to reserved port authentication */
 	0,					/* sched_modify_event */
+	0,					/* use_microsec_logging */
 	0,					/* syslogfac */
 	3,					/* syslogsvr - LOG_ERR from syslog.h */
 	PBS_BATCH_SERVICE_PORT,			/* batch_service_port */
@@ -559,6 +560,10 @@ pbs_loadconf(int reload)
 				if (sscanf(conf_value, "%u", &uvalue) == 1)
 					pbs_conf.sched_modify_event = ((uvalue > 0) ? 1 : 0);
 			}
+			else if (!strcmp(conf_name, PBS_CONF_USE_MICROSEC_LOGGING)) {
+				if (sscanf(conf_value, "%u", &uvalue) == 1)
+					pbs_conf.use_microsec_logging = ((uvalue > 0) ? 1 : 0);
+			}
 			else if (!strcmp(conf_name, PBS_CONF_MOM_NODE_NAME)) {
 				free(pbs_conf.pbs_mom_node_name);
 				pbs_conf.pbs_mom_node_name = strdup(conf_value);
@@ -776,6 +781,10 @@ pbs_loadconf(int reload)
 	if ((gvalue = getenv(PBS_CONF_OUTPUT_HOST_NAME)) != NULL) {
 		free(pbs_conf.pbs_output_host_name);
 		pbs_conf.pbs_output_host_name = strdup(gvalue);
+	}
+	if ((gvalue = getenv(PBS_CONF_USE_MICROSEC_LOGGING)) != NULL) {
+		if (sscanf(gvalue, "%u", &uvalue) == 1)
+			pbs_conf.use_microsec_logging = ((uvalue > 0) ? 1 : 0);
 	}
 
 	/* support PBS_MOM_NODE_NAME to tell MOM natural node name on server */

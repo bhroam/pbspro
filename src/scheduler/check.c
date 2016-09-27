@@ -101,6 +101,8 @@
 #include "limits_if.h"
 #include "simulate.h"
 #include "resource.h"
+#include "buckets.h"
+#include "pbs_bitmap.h"
 
 
 /**
@@ -1964,4 +1966,118 @@ find_correct_nodes(status *policy, server_info *sinfo, queue_info *qinfo, resour
 		return 0;
 
 	return 1;
+}
+
+/*
+ * @brief - create a mapping of chunks to the buckets they can run in
+ * 
+ * @param[in] buckets - buckets to check
+ * @param[in] resresv - resresv to check
+ * @param[out] err - error structure to return failure 
+ * 
+ * @return chunk map 
+ * @retval NULL - for the following reasons:
+		- if no buckets are found for one chunk
+ *		- if there aren't enough nodes in all buckets found for one chunk
+ *		- on malloc() failure
+ */
+chunk_map **
+find_correct_buckets(node_bucket **buckets, resource_resv *resresv, schd_error *err)
+{
+	int bucket_ct;
+	int chunk_ct;
+	int i, j;
+	int b = 0;
+	chunk_map **cb_map;
+	
+	if(buckets == NULL || resresv == NULL || resresv->select == NULL || err == NULL)
+		return NULL;
+
+	
+	bucket_ct = count_array((void**) buckets);
+	chunk_ct = count_array((void**) resresv->select->chunks);
+	
+	cb_map = malloc((chunk_ct + 1) * sizeof(chunk_map));
+	if(cb_map == NULL) {
+		log_err(errno, __func__, MEM_ERR_MSG);
+		return NULL;
+	}
+
+	for (i = 0; resresv->select->chunks[i] != NULL; i++) {
+		int down_offline = 0;
+		int total = 0;
+		b = 0;
+		cb_map[i] = new_chunk_map();
+		if(cb_map[i] == NULL) {
+			free_chunk_map_array(cb_map);
+			return NULL;
+		}
+		cb_map[i]->chunk = resresv->select->chunks[i];
+		cb_map[i]->bkts = calloc(bucket_ct + 1, sizeof(node_bucket *));
+		if (cb_map[i] == NULL) {
+			log_err(errno, __func__, MEM_ERR_MSG);
+			free_chunk_map_array(cb_map);
+			return NULL;
+		}
+		for (j = 0; buckets[j] != NULL; j++) {
+			if (check_avail_resources(buckets[j]->res_spec, resresv->select->chunks[i]->req,
+						  (CHECK_ALL_BOOLS | COMPARE_TOTAL|UNSET_RES_ZERO), conf.node_bucket_resdef, INSUFFICIENT_RESOURCE, err)) {
+				queue_info *qinfo = NULL;
+				if(resresv->job != NULL) {
+					if(resresv->job->queue->nodes != NULL)
+						qinfo = resresv->job->queue;
+				}
+				if(buckets[j]->queue == qinfo) {
+					cb_map[i]->bkts[b++] = buckets[j];
+					down_offline += buckets[j]->down_offline;
+					total += buckets[j]->total;
+				}
+			}
+		}
+		cb_map[i]->bkts[b] = NULL;
+		
+		/* No buckets match or not enough nodes in the buckets: the job can't run */
+		if(b == 0 || (total - down_offline) < cb_map[i]->chunk->num_chunks) {
+			cb_map[i+1] = NULL;
+			free_chunk_map_array(cb_map);
+			return NULL;
+		}
+	}
+	cb_map[i] = NULL;
+
+	return cb_map;
+}
+
+/*
+ * @brief check to see if a resresv can fit on the nodes using buckets
+ * 
+ * @param[in] policy - policy info
+ * @param[in] sinfo - PBS universe
+ * @param[in] resresv - resresv to see if it can fit
+ * @param[out] err - error structure to return failure
+ * 
+ * @return place resresv can run or NULL if it can't
+ */
+nspec **
+is_ok_to_run_bucket(status *policy, server_info *sinfo, resource_resv *resresv, schd_error *err) 
+{
+	chunk_map **cmap;
+	nspec **ns_arr;
+	
+	cmap = find_correct_buckets(sinfo->buckets, resresv, err);
+	if(cmap == NULL) {
+		set_schd_error_codes(err, NEVER_RUN, NO_NODE_RESOURCES);
+		return NULL;
+	}
+	
+	if(bucket_match(cmap, resresv, sinfo->server_time) == 0) {
+		set_schd_error_codes(err, NOT_RUN, NO_NODE_RESOURCES);
+		free_chunk_map_array(cmap);
+		return NULL;
+	}
+	
+	ns_arr = bucket_to_nspecs(policy, cmap, resresv);
+	
+	free_chunk_map_array(cmap);
+	return ns_arr;
 }

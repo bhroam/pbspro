@@ -239,6 +239,10 @@ schd_resource *unset_str_res(void);
  */
 int find_correct_nodes(status *policy, server_info *sinfo, queue_info *qinfo, resource_resv *resresv, node_info ***ninfo_arr, node_partition ***nodepart);
 
+nspec **is_ok_to_run_bucket(status *policy, server_info *sinfo, resource_resv *resresv, schd_error *err);
+chunk_map **find_correct_buckets(node_bucket **buckets, resource_resv *resresv, schd_error *err);
+
+
 #ifdef	__cplusplus
 }
 #endif

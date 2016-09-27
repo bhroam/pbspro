@@ -104,6 +104,8 @@
 #include "misc.h"
 #include "prime.h"
 #include "globals.h"
+#include "check.h"
+#include "buckets.h"
 #ifdef NAS /* localmod 030 */
 #include "site_code.h"
 #endif /* localmod 030 */
@@ -765,6 +767,74 @@ calc_run_time(char *name, server_info *sinfo, int flags)
 	return event_time;
 }
 
+/*
+ * @brief calculate the start time of a resresv using the bucket algorithm
+ * 
+ * @param[in] policy - policy info
+ * @param[in] resresv - resresv to calculate start time for
+ * @param[in] sinfo - universe 
+ * 
+ * @return start time of resresv
+ * @retval 0 failure
+ * @retval -1 error
+ */	
+time_t 
+calc_run_time_bucket(status *policy, resource_resv *resresv, server_info *sinfo)
+{
+	resource_resv *erev;
+	timed_event *e;
+	static schd_error *err;
+	int cmap_rc = 0;
+	chunk_map **cmap;
+	unsigned int mask = TIMED_RUN_EVENT|TIMED_END_EVENT;
+	time_t logical_time;
+
+	
+	if(sinfo == NULL || resresv == NULL)
+		return -1;
+	
+	if(err == NULL) {
+		err = new_schd_error();
+		if(err == NULL)
+			return -1;
+	}
+	
+	cmap = find_correct_buckets(sinfo->cal_buckets, resresv, err);
+	if(cmap == NULL) /* Job can't fit into any bucket.  It can never run */
+		return 0;
+		
+	for(e = find_init_timed_event(sinfo->calendar->next_event, 1, mask); e != NULL;
+		e = find_next_timed_event(e, 1, mask)) {
+		int i;
+
+		
+		logical_time = e->event_time;
+		erev = (resource_resv *) e->event_ptr;
+		
+		for(i = 0; erev->nspec_arr[i] != NULL; i++) {
+			if(e->event_type & TIMED_END_EVENT) {
+				update_snode_on_end(sinfo->snodes[erev->nspec_arr[i]->ninfo->node_ind], sinfo->cal_buckets);
+			} else if(e->event_type & TIMED_RUN_EVENT) {
+				update_snode_on_run(sinfo->snodes[erev->nspec_arr[i]->ninfo->node_ind], sinfo->cal_buckets, erev);
+			}
+		}
+		
+		if(cmap_rc = bucket_match(cmap, resresv, logical_time))
+			break;
+	}
+	
+	/* Ran to the end of time and didn't find a match */
+	if (cmap_rc == 0) {
+		free_chunk_map_array(cmap);
+		return 0;
+	}
+
+	resresv->nspec_arr = bucket_to_nspecs(policy, cmap, resresv);
+	free_chunk_map_array(cmap);
+	
+	return logical_time;
+}
+	
 /**
  * @brief
  * 		create an event_list from running jobs and confirmed resvs
@@ -1013,6 +1083,162 @@ dup_timed_event(timed_event *ote, server_info *nsinfo)
 	}
 
 	return nte;
+}
+
+/*
+ * @brief constructor for te_list
+ * @return new te_list structure
+ */
+te_list *
+new_te_list() {
+	te_list *tel;
+	tel = malloc(sizeof(te_list));
+	
+	if(tel == NULL) {
+		log_err(errno, __func__, MEM_ERR_MSG);
+		return NULL;
+	}
+	
+	tel->event = NULL;
+	tel->next = NULL;
+	
+	return tel;
+}
+
+/*
+ * @brief te_list destructor
+ * @param[in] tel - te_list to free
+ * 
+ * @return void
+ */
+void
+free_te_list(te_list *tel) {
+	if(tel == NULL)
+		return;
+	free_te_list(tel->next);
+	free(tel);
+}
+
+/*
+ * @brief te_list copy constructor
+ * @param[in] ote - te_list to copy
+ * @param[in] new_timed_even_list - new timed events
+ * @param[in] copy - copy events instead of finding them in new_timed_event_list
+ * 
+ * @return copied te_list
+ */
+te_list *
+dup_te_list(te_list *ote, timed_event *new_timed_event_list, int copy) {
+	te_list *nte;
+	nte = new_te_list();
+	if(nte == NULL)
+		return NULL;
+	
+	if(copy)
+		nte->event = ote->event;
+	else
+		nte->event = find_timed_event(new_timed_event_list, ote->event->name, ote->event->event_type, ote->event->event_time);
+	
+	return nte;
+}
+
+/*
+ * @brief copy constructor for a list of te_list structures
+ * @param[in] ote - te_list to copy
+ * @param[in] new_timed_even_list - new timed events
+ * @param[in] copy - copy events instead of finding them in new_timed_event_list
+ * 
+ * @return copied te_list list
+ */
+
+te_list *
+dup_te_lists(te_list *ote, timed_event *new_timed_event_list, int copy) {
+	te_list *nte;
+	te_list *end_te = NULL;
+	te_list *cur;
+	te_list *nte_head = NULL;
+	
+	for(cur = ote; cur != NULL; cur = cur->next) {
+		nte = dup_te_list(cur, new_timed_event_list, copy);
+		if(end_te != NULL) 
+			end_te->next = nte;
+		else
+			nte_head = nte;
+			
+		end_te = nte;
+	}
+	return nte_head;
+}
+
+/*
+ * @brief add a te_list for a timed_event to a list sorted by the event's time
+ * @param[in,out] tel - te_list to add to
+ * @param[in] te - timed_event to add
+ * 
+ * @return success/failure
+ * @retval 1 success
+ * @retbal 0 failure
+ */
+int
+add_te_list(te_list **tel, timed_event *te) {
+	te_list *cur_te;
+	te_list *prev = NULL;
+	te_list *ntel;
+	
+	if(tel == NULL || te == NULL)
+		return 0;
+	
+	for(cur_te = *tel; cur_te != NULL && cur_te->event->event_time < te->event_time; prev = cur_te, cur_te = cur_te->next)
+		;
+	
+	ntel = new_te_list();
+	if(ntel == NULL)
+		return 0;
+	ntel->event = te;
+	
+	if(prev == NULL) {
+		ntel->next = *tel;
+		(*tel) = ntel;
+	} else {
+		prev->next = ntel;
+		ntel->next = cur_te;
+	}
+	return 1;
+}
+
+/*
+ * @brief remove a te_list from a list by timed_event
+ * @param[in,out] tel - te_list to remove event from
+ * @param[in] te - timed_event to remove
+ * 
+ * @return success/failure
+ * @retval 1 success
+ * @retval 0 failure
+ */
+int
+remove_te_list(te_list **tel, timed_event *e)
+{
+	te_list *prev_tel;
+	te_list *cur_tel;
+	
+	if(tel == NULL || e == NULL)
+		return 0;
+	
+	prev_tel = NULL;
+	for (cur_tel = *tel; cur_tel != NULL && cur_tel->event != e; prev_tel = cur_tel, cur_tel = cur_tel->next)
+		;
+	if (prev_tel == NULL) {
+		*tel = cur_tel->next;
+		free(cur_tel);
+	}
+	else if (cur_tel != NULL) {
+		prev_tel -> next = cur_tel -> next;
+		free(cur_tel);
+	}
+	else
+		return 0;
+	
+	return 1;
 }
 
 /**

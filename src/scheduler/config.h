@@ -164,6 +164,7 @@
 #define PARSE_RESV_CONFIRM_IGNORE "resv_confirm_ignore"
 #define PARSE_ALLOW_AOE_CALENDAR "allow_aoe_calendar"
 #define PARSE_OPT_BACKFILL_FUZZY_TIME "opt_backfill_fuzzy_time"
+#define PARSE_NODE_BUCKET_RESOURCES "node_bucket_resources"
 
 /* deprecated */
 #define PARSE_SORT_BY "sort_by"

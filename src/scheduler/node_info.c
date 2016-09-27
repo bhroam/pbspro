@@ -143,6 +143,7 @@
 #include "pbs_internal.h"
 #include "server_info.h"
 #include "pbs_share.h"
+#include "pbs_bitmap.h"
 #ifdef NAS
 #include "site_code.h"
 #endif
@@ -373,6 +374,9 @@ query_node_info(struct batch_status *node, server_info *sinfo)
 					ninfo = NULL;
 					break;
 				}
+
+				if(res->def == getallres(RES_MEM))
+					res->avail -= (long) res->avail % 256;
 #ifdef NAS /* localmod 034 */
 				site_set_node_share(ninfo, res);
 #endif /* localmod 034 */
@@ -500,6 +504,10 @@ new_node_info()
 
 	new->svr_node = NULL;
 	new->hostset = NULL;
+	
+	new->node_events = NULL;
+	new->bucket_ind = -1;
+	new->node_ind = -1;
 
 	memset(&new->nscr, 0, sizeof(node_scratch));
 
@@ -580,6 +588,9 @@ free_node_info(node_info *ninfo)
 
 		if (ninfo->nodesig != NULL)
 			free(ninfo->nodesig);
+		
+		if(ninfo->node_events != NULL)
+			free_te_list(ninfo->node_events);
 
 
 		free(ninfo);
@@ -1248,6 +1259,9 @@ dup_node_info(node_info *onode, server_info *nsinfo,
 		nnode->hostset = find_node_partition_by_rank(nsinfo->hostsets,
 			onode->hostset->rank);
 
+	nnode->bucket_ind = onode->bucket_ind;
+	nnode->node_ind = onode->node_ind;
+	
 	nnode->nscr = onode->nscr;
 
 #ifdef NAS /* localmod 049 */
@@ -1491,17 +1505,25 @@ collect_jobs_on_nodes(node_info **ninfo_arr, resource_resv **resresv_arr, int si
 void
 update_node_on_run(nspec *ns, resource_resv *resresv)
 {
+	server_info *sinfo;
 	resource_req *resreq;
 	schd_resource *res;
 	schd_resource *ncpusres = NULL;
 	counts *cts;
 	resource_resv **tmp_arr;
 	node_info *ninfo;
-
+	timed_event *te;
+	te_list *cur_tel;
+	te_list *prev_tel;
+	node_bucket *bkt;
+	int ind;
+	int i;
+	
 	if (ns == NULL || resresv == NULL)
 		return;
 
 	ninfo = ns->ninfo;
+	sinfo = ninfo->server;
 
 	/* Don't account for resources of a node that is unavailable */
 	if (ninfo->is_offline || ninfo->is_down)
@@ -1601,6 +1623,65 @@ update_node_on_run(nspec *ns, resource_resv *resresv)
 			}
 		}
 	}
+	
+	for(te = resresv->server->calendar->next_event; te != NULL; te = te->next) {
+		if(te->event_type & TIMED_RUN_EVENT) {
+			if(te->event_ptr == resresv)
+				break;
+		}
+	}
+	
+	prev_tel = NULL;
+	for(cur_tel = ninfo->node_events; cur_tel != NULL && cur_tel->event != te; prev_tel = cur_tel, cur_tel = cur_tel->next)
+		;
+	if(prev_tel == NULL) 
+		ninfo->node_events = cur_tel;
+	else if (cur_tel != NULL) {
+		prev_tel -> next = cur_tel -> next;
+		free(cur_tel);
+	}
+
+}
+
+/*
+ * @brief update an snode and associated bucket on resres run
+ * @param[in] sn - the snode to update
+ * @param[in]buckets - the buckets to update
+ * @param[in] resresv - the resresv that was run
+ * 
+ * @return void
+ */
+void
+update_snode_on_run(snode *sn, node_bucket **buckets, resource_resv *resresv) {
+	int ind;
+	te_list *prev_tel;
+	te_list *cur_tel;
+	node_bucket *bkt;
+	timed_event *te;
+	
+	ind = sn->ninfo->node_ind;
+
+	for(te = resresv->server->calendar->next_event; te != NULL; te = te->next) {
+		if(te->event_type & TIMED_RUN_EVENT) {
+			if(te->event_ptr == resresv)
+				break;
+		}
+	}
+	
+	remove_te_list(&sn->node_events, te);
+
+	bkt = buckets[sn->bucket_ind];
+
+	if (pbs_bitmap_get_bit(bkt->free->truth, ind)) {
+		pbs_bitmap_bit_off(bkt->free->truth, ind);
+		bkt->free->truth_ct--;
+	} else {
+		pbs_bitmap_bit_off(bkt->busy_later->truth, ind);
+		bkt->busy_later->truth_ct--;
+	}
+
+	pbs_bitmap_bit_on(bkt->busy->truth, ind);
+	bkt->busy->truth_ct++;
 }
 
 /**
@@ -1622,6 +1703,8 @@ update_node_on_end(node_info *ninfo, resource_resv *resresv)
 	counts *cts;
 	nspec *ns;		/* nspec from resresv for this node */
 	char logbuf[MAX_LOG_SIZE];
+	node_bucket *bkt;
+	int ind;
 	int i;
 
 	if (ninfo == NULL || resresv == NULL || resresv->nspec_arr == NULL)
@@ -1711,6 +1794,34 @@ update_node_on_end(node_info *ninfo, resource_resv *resresv)
 			}
 		}
 	}
+	
+}
+
+/*
+ * @brief Update a bucket for an snode on job end
+ * @param[in] sn - the snode to update
+ * @param[in] buckets - the buckets to update 
+ * 
+ * @return void
+ */
+void
+update_snode_on_end(snode *sn, node_bucket **buckets)
+{
+	int ind;
+	node_bucket *bkt;
+	
+	ind = sn->ninfo->node_ind;
+	bkt = buckets[sn->bucket_ind];
+	
+	if (sn->node_events == NULL) {
+		pbs_bitmap_bit_on(bkt->free->truth, ind);
+		bkt->free->truth_ct++;
+	} else {
+		pbs_bitmap_bit_on(bkt->busy_later->truth, ind);
+		bkt->busy_later->truth_ct++;
+	}
+	pbs_bitmap_bit_off(bkt->busy->truth, ind);
+	bkt->busy->truth_ct--;
 }
 
 /**
@@ -5048,6 +5159,29 @@ create_node_array_from_str(node_info **nodes, char **strnodes)
 }
 
 /**
+ * @brief find a node in the array and return its index
+ * @param ninfo_arr - node array
+ * @param rank - rank of node to search for
+ * @return int
+ * @retval 0+ - index in array of node
+ * @retval -1 - node not found
+ */
+int
+find_node_ind(node_info **ninfo_arr, int rank) {
+	int i;
+	if(ninfo_arr == NULL)
+		return -1;
+	
+	for (i = 0; ninfo_arr[i] != NULL && ninfo_arr[i]->rank != rank; i++)
+		;
+
+	if(ninfo_arr[i] == NULL)
+		return -1;
+	
+	return i;
+}
+
+/**
  * @brief
  * 		find a node by its unique rank
  *
@@ -5062,13 +5196,14 @@ node_info *
 find_node_by_rank(node_info **ninfo_arr, int rank)
 {
 	int i;
+	int ind;
 	if (ninfo_arr == NULL)
 		return NULL;
 
-	for (i = 0; ninfo_arr[i] != NULL && ninfo_arr[i]->rank != rank; i++)
-		;
-
-	return ninfo_arr[i];
+	ind = find_node_ind(ninfo_arr, rank);
+	if(ind == -1)
+		return NULL;
+	return ninfo_arr[ind];
 }
 
 /**
@@ -5301,4 +5436,67 @@ check_node_array_eligibility(node_info **ninfo_arr, resource_resv *resresv, plac
 	 */
 	if (err->status_code == SCHD_UNKWN && misc_err->status_code != SCHD_UNKWN)
 		move_schd_error(err, misc_err);
+}
+
+/**
+ * @brief add a node to a node array
+ * @param ninfo_arr - array to add node to
+ * @param node - node to add
+ * @return realloc()'d node array
+ */
+node_info **add_node_to_array(node_info **ninfo_arr, node_info *node) {
+	int ct;
+	node_info **tmp;
+	
+	if (ninfo_arr == NULL)
+		return NULL;
+	if(node == NULL)
+		return ninfo_arr;
+	
+	ct = count_array((void **)ninfo_arr);
+	
+	tmp = realloc(ninfo_arr, (ct + 2) * sizeof(node_info *));
+	if(tmp == NULL) {
+		log_err(errno, __func__, MEM_ERR_MSG);
+		return NULL;
+	}
+	
+	tmp[ct] = node;
+	tmp[ct+1] = NULL;
+	
+	return tmp;
+}
+
+int add_event_to_nodes(timed_event *te, nspec **nspecs) {
+	int i;
+	for(i = 0; nspecs[i] != NULL; i++) {
+		te_list *tel;
+		te_list *end_tel = NULL;
+		te_list *cur_tel;
+		tel = new_te_list();
+		if(tel == NULL)
+			return 0;
+		tel->event = te;
+		for(cur_tel = nspecs[i]->ninfo->node_events; cur_tel != NULL; cur_tel = cur_tel->next)
+			end_tel = cur_tel;
+		if (end_tel != NULL)
+			end_tel->next = tel;
+		else
+			nspecs[i]->ninfo->node_events = tel;
+	}
+	return 1;
+}
+
+int add_node_events(timed_event *te, void *arg1, void *arg2) {
+	int i;
+	nspec **nspecs;
+
+	if (!te->disabled) {
+		nspecs = ((resource_resv *) te->event_ptr)->nspec_arr;
+
+		if (add_event_to_nodes(te, nspecs) == 0)
+			return -1;
+	}
+	
+	return 0;
 }

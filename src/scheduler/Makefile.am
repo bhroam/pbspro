@@ -41,6 +41,8 @@ libpbs_sched_a_CPPFLAGS = \
 	-I$(top_srcdir)/src/include \
 	@PYTHON_INCLUDES@
 libpbs_sched_a_SOURCES = \
+	buckets.c \
+	buckets.h \
 	check.c \
 	check.h \
 	config.h \
@@ -66,6 +68,8 @@ libpbs_sched_a_SOURCES = \
 	node_partition.h \
 	parse.c \
 	parse.h \
+	pbs_bitmap.c \
+	pbs_bitmap.h \
 	prev_job_info.c \
 	prev_job_info.h \
 	prime.c \
@@ -90,7 +94,7 @@ libpbs_sched_a_SOURCES = \
 	state_count.h \
 	site_code.c \
 	site_code.h \
-	site_data.h
+	site_data.h 
 
 sbin_PROGRAMS = pbs_sched pbsfs
 

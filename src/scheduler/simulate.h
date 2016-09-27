@@ -24,13 +24,13 @@
  * Public License agreement ("AGPL"), except where a separate commercial license 
  * agreement for PBS Pro version 14 or later has been executed in writing with Altair.
  *  
- * Altair’s dual-license business model allows companies, individuals, and 
+ * Altairs dual-license business model allows companies, individuals, and 
  * organizations to create proprietary derivative works of PBS Pro and distribute 
  * them - whether embedded or bundled with other software - under a commercial 
  * license agreement.
  * 
- * Use of Altair’s trademarks, including but not limited to "PBS™", 
- * "PBS Professional®", and "PBS Pro™" and Altair’s logos is subject to Altair's 
+ * Use of Altairs trademarks, including but not limited to "PBS"", 
+ * "PBS Professional�", and "PBS Pro"" and Altairs logos is subject to Altair's 
  * trademark licensing policies.
  *
  */
@@ -436,6 +436,23 @@ int add_prov_event(event_list *calendar, time_t event_time, node_info *node);
 int
 generic_sim(event_list *calendar, unsigned int event_mask, time_t end, int default_ret,
 	int (*func)(timed_event*, void*, void*), void *arg1, void *arg2);
+
+
+te_list *new_te_list();
+
+te_list *
+dup_te_list(te_list *ote, timed_event *new_timed_event_list, int copy);
+te_list *
+dup_te_lists(te_list *ote, timed_event *new_timed_event_list, int copy);
+
+void free_te_list(te_list *tel);
+
+int add_te_list(te_list **tel, timed_event *te);
+int remove_te_list(te_list **tel, timed_event *e);
+
+
+time_t calc_run_time_bucket(status *policy, resource_resv *resresv, server_info *sinfo);
+
 
 #ifdef	__cplusplus
 }

@@ -189,6 +189,7 @@ struct pbs_config
 	unsigned locallog:1;			/* do local logging */
 	unsigned auth_method;		/* set auth_method to use */
 	unsigned int sched_modify_event:1;	/* whether to trigger modifyjob hook event or not */
+	unsigned use_microsec_logging:1;	/* print sec.microsec in the log files*/
 	unsigned syslogfac;		        /* syslog facility */
 	unsigned syslogsvr;			/* min priority to log to syslog */
 	unsigned int batch_service_port;	/* PBS batch_service_port */
@@ -292,6 +293,7 @@ extern struct pbs_config pbs_conf;
 #define	PBS_CONF_LICENSE_STRING	"PBS_LICENSE_FILE_LOCATION"	/* LM-X recovery hook */
 #define PBS_CONF_AUTH           "PBS_AUTH_METHOD"
 #define PBS_CONF_SCHEDULER_MODIFY_EVENT	"PBS_SCHEDULER_MODIFY_EVENT"
+#define PBS_CONF_USE_MICROSEC_LOGGING "PBS_USE_MICROSEC_LOGGING"
 #define PBS_CONF_MOM_NODE_NAME	"PBS_MOM_NODE_NAME"
 #ifdef WIN32
 #define PBS_CONF_REMOTE_VIEWER "PBS_REMOTE_VIEWER"	/* Executable for remote viewer application alongwith its launch options, for PBS GUI jobs */
