@@ -411,8 +411,6 @@ parse_config(char *fname)
 						conf.num_res_to_check = i;
 					}
 				}
-				else if (!strcmp(config_name, PARSE_NODE_BUCKET_RESOURCES))
-					conf.node_bucket_res = break_comma_list(config_value);
 				else if (!strcmp(config_name, PARSE_MOM_RESOURCES))
 					conf.dyn_res_to_get = break_comma_list(config_value);
 				else if (!strcmp(config_name, PARSE_DEDICATED_PREFIX)) {

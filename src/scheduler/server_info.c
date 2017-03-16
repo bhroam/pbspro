@@ -423,8 +423,18 @@ query_server(status *pol, int pbs_sd)
 	create_placement_sets(policy, sinfo);
 	
 	generic_sim(sinfo->calendar, TIMED_RUN_EVENT, 0, 0, add_node_events, NULL, NULL);
+	
+	sinfo->unsorted_nodes = malloc((sinfo->num_nodes+1) * sizeof(node_info*));
+	if(sinfo->unsorted_nodes == NULL) {
+		sinfo->fairshare = NULL;
+		free_server(sinfo, 1);
+		return NULL;
+	}
+	for(i = 0; i < sinfo->num_nodes; i++)
+		sinfo->unsorted_nodes[i] = sinfo->nodes[i];
+	sinfo->unsorted_nodes[i] = NULL;
 	sinfo->snodes = create_snodes(sinfo->nodes);
-	sinfo->buckets = create_node_buckets(sinfo);
+	sinfo->buckets = create_node_buckets(policy, sinfo);
 
 	pbs_statfree(server);
 
@@ -993,6 +1003,9 @@ free_server_info(server_info *sinfo)
 		free_node_bucket_array(sinfo->cal_buckets);
 	if(sinfo->snodes != NULL)
 		free_snode_array(sinfo->snodes);
+	
+	if(sinfo->unsorted_nodes != NULL)
+		free(sinfo->unsorted_nodes);
 
 	free_resource_list(sinfo->res);
 #ifdef NAS
@@ -1136,6 +1149,7 @@ new_server_info(int limallocflag)
 	sinfo->buckets = NULL;
 	sinfo->cal_buckets = NULL;
 	sinfo->truth_snodes = NULL;
+	sinfo->unsorted_nodes = NULL;
 	sinfo->snodes = NULL;
 	sinfo->num_queues = 0;
 	sinfo->num_nodes = 0;
@@ -1270,18 +1284,13 @@ add_resource_list(status *policy, schd_resource *r1, schd_resource *r2, unsigned
 {
 	schd_resource *cur_r1;
 	schd_resource *cur_r2;
-	schd_resource *end_r1;
+	schd_resource *end_r1 = NULL;
 	schd_resource *nres;
 	sch_resource_t assn;
 	int i;
 
 	if (r1 == NULL || r2 == NULL)
 		return 0;
-
-	end_r1 = r1;
-
-	while (end_r1->next != NULL)
-		end_r1 = end_r1->next;
 
 	for (cur_r2 = r2; cur_r2 != NULL; cur_r2 = cur_r2->next) {
 		if ((flags & USE_RESOURCE_LIST)) {
@@ -1293,6 +1302,9 @@ add_resource_list(status *policy, schd_resource *r1, schd_resource *r2, unsigned
 		cur_r1 = find_resource(r1, cur_r2->def);
 		if (cur_r1 == NULL) { /* resource in r2 which is not in r1 */
 			if (!(flags & NO_UPDATE_NON_CONSUMABLE) || cur_r2->type.is_consumable) {
+				if(end_r1 == NULL)
+					for (end_r1 = r1; end_r1->next != NULL; end_r1 = end_r1->next)
+						;
 				end_r1->next = dup_resource(cur_r2);
 				if (end_r1->next == NULL)
 					return 0;
@@ -1333,6 +1345,9 @@ add_resource_list(status *policy, schd_resource *r1, schd_resource *r2, unsigned
 						if (nres == NULL)
 							return 0;
 
+						if (end_r1 == NULL)
+							for (end_r1 = r1; end_r1->next != NULL; end_r1 = end_r1->next)
+								;
 						end_r1->next = nres;
 						end_r1 = nres;
 					} else {
@@ -2057,7 +2072,8 @@ dup_server_info(server_info *osinfo)
 			node_filter(nsinfo->nodes, nsinfo->num_nodes, is_unassoc_node, NULL, 0);
 	} else
 		nsinfo->unassoc_nodes = nsinfo->nodes;
-
+	
+	nsinfo->unsorted_nodes = copy_node_ptr_array(osinfo->unsorted_nodes, nsinfo->nodes);
 
 	/* dup the reservations */
 	nsinfo->resvs = dup_resource_resv_array(osinfo->resvs, nsinfo, NULL);
@@ -2073,8 +2089,6 @@ dup_server_info(server_info *osinfo)
 		free_server(nsinfo, 0);
 		return NULL;
 	}
-
-	nsinfo->buckets = dup_node_bucket_array(osinfo->buckets, nsinfo);
 
 	if (osinfo->queue_list != NULL) {
 		int ret_val;
@@ -2179,6 +2193,8 @@ dup_server_info(server_info *osinfo)
 			nsinfo->nodes[i]->node_events = dup_te_lists(osinfo->nodes[i]->node_events, nsinfo->calendar->next_event, 0);
 
 	}
+	nsinfo->buckets = dup_node_bucket_array(osinfo->buckets, nsinfo);
+	nsinfo->snodes = dup_snode_array(osinfo->snodes, nsinfo->nodes, nsinfo->calendar->next_event);
 
 	return nsinfo;
 }
@@ -2813,8 +2829,10 @@ update_universe_on_end(status *policy, resource_resv *resresv, char *job_state)
 	}
 
 	if (resresv->ninfo_arr != NULL)
-		for (i = 0; resresv->ninfo_arr[i] != NULL; i++)
+		for (i = 0; resresv->ninfo_arr[i] != NULL; i++) {
 			update_node_on_end(resresv->ninfo_arr[i], resresv);
+			update_snode_on_end(resresv->server->snodes[resresv->ninfo_arr[i]->node_ind], resresv->server->buckets);
+		}
 
 
 	update_server_on_end(policy, sinfo, qinfo, resresv, job_state);

@@ -330,12 +330,22 @@ dup_resource_resv(resource_resv *oresresv,
 	server_info *nsinfo, queue_info *nqinfo)
 {
 	resource_resv *nresresv;
+	static schd_error *err;
 
 	if (oresresv == NULL || nsinfo == NULL)
 		return NULL;
+	
+	if (err == NULL) {
+		err = new_schd_error();
+		if (err == NULL)
+			return NULL;
+	} else
+		clear_schd_error(err);
 
-	if (!is_resource_resv_valid(oresresv, NULL))
+	if (!is_resource_resv_valid(oresresv, err)) {
+		schdlogerr(PBSEVENT_DEBUG2, PBS_EVENTCLASS_SCHED, LOG_DEBUG, oresresv->name, "Can't dup resresv", err);
 		return NULL;
+	}
 
 	nresresv = new_resource_resv();
 
@@ -439,7 +449,8 @@ dup_resource_resv(resource_resv *oresresv,
 	nresresv->share_type = oresresv->share_type;
 #endif /* localmod 034 */
 
-	if (!is_resource_resv_valid(nresresv, NULL)) {
+	if (!is_resource_resv_valid(nresresv, err)) {
+		schdlogerr(PBSEVENT_DEBUG2, PBS_EVENTCLASS_SCHED, LOG_DEBUG, oresresv->name, "Failed to dup resresv", err);
 		free_resource_resv(nresresv);
 		return NULL;
 	}

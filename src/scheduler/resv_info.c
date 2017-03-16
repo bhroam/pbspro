@@ -1428,7 +1428,7 @@ confirm_reservation(status *policy, int pbs_sd, resource_resv *unconf_resv, serv
 		}
 		if (!(simrc & TIMED_ERROR) && resv_start_time >= 0) {
 			clear_schd_error(err);
-			if ((ns = is_ok_to_run(nsinfo->policy, -1, nsinfo, NULL, nresv, NO_FLAGS, err)) != NULL) {
+			if ((ns = is_ok_to_run(nsinfo->policy, nsinfo, NULL, nresv, NO_FLAGS, err)) != NULL) {
 				combine_nspec_array(ns);
 				tmp = create_execvnode(ns);
 				free_nspecs(ns);

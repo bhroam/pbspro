@@ -2469,7 +2469,7 @@ find_jobs_to_preempt(status *policy, resource_resv *hjob, server_info *sinfo, in
 		return NULL;
 	}
 
-	ns_arr = is_ok_to_run(policy, -1, sinfo, hjob->job->queue, hjob, RETURN_ALL_ERR, full_err);
+	ns_arr = is_ok_to_run(policy, sinfo, hjob->job->queue, hjob, RETURN_ALL_ERR, full_err);
 
 	/* This should be NULL, but just in case */
 	free_nspecs(ns_arr);
@@ -2651,7 +2651,7 @@ find_jobs_to_preempt(status *policy, resource_resv *hjob, server_info *sinfo, in
 
 
 			clear_schd_error(err);
-			if ((ns_arr = is_ok_to_run(policy, -1, nsinfo,
+			if ((ns_arr = is_ok_to_run(policy, nsinfo,
 				njob->job->queue, njob, NO_FLAGS, err)) != NULL) {
 
 				/* Normally when running a subjob, we do not care about the subjob. We just care that it successfully runs.
@@ -2764,7 +2764,7 @@ find_jobs_to_preempt(status *policy, resource_resv *hjob, server_info *sinfo, in
 			if (preemption_similarity(njob, pjobs[j], full_err) == 0) {
 				remove_job = 1;
 				ns_arr = pjobs[j]->nspec_arr;
-			} else if ((ns_arr = is_ok_to_run(policy, SIMULATE_SD, nsinfo,
+			} else if ((ns_arr = is_ok_to_run(policy, nsinfo,
 				pjobs[j]->job->queue, pjobs[j], NO_FLAGS, err)) != NULL) {
 				remove_job = 1;
 				rc = sim_run_update_resresv(policy, pjobs[j], ns_arr, RURR_NO_FLAGS);

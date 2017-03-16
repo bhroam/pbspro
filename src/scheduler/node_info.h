@@ -598,6 +598,7 @@ node_info **create_node_array_from_str(node_info **nodes, char **strnodes);
  *      find node by unique rank
  */
 node_info *find_node_by_rank(node_info **ninfo_arr, int rank);
+node_info *find_node_by_indrank(node_info **ninfo_arr, int ind, int rank);
 
 /*
  * node scratch constructor

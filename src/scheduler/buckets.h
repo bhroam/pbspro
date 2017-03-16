@@ -41,53 +41,65 @@ extern "C" {
 #ifndef _BUCKETS_H
 #define _BUCKETS_H
 
+/* bucket_bitpool constructor, copy constructor, destructor */
 bucket_bitpool *new_bucket_bitpool();
 void free_bucket_bitpool(bucket_bitpool *bp);
 bucket_bitpool *dup_bucket_bitpool(bucket_bitpool *obp);
 
+/* node_bucket constructor, copy constructor, destructor */
 node_bucket *new_node_bucket(int new_pools);
 node_bucket *dup_node_bucket(node_bucket *onb, server_info *nsinfo);
 node_bucket **dup_node_bucket_array(node_bucket **old, server_info *nsinfo);
 void free_node_bucket(node_bucket *nb);
 void free_node_bucket_array(node_bucket **buckets);
+
+/* find index of node_bucket in an array*/
 int find_node_bucket_ind(node_bucket **buckets, schd_resource *rl, queue_info *queue);
-node_bucket **create_node_buckets(server_info *sinfo);
 
-int bucket_match(chunk_map **cmap, resource_resv *resresv, time_t time_now);
-nspec *chunk_to_nspec(status *policy, chunk *chk, node_info *node);
+/* create node_buckets from sinfo->nodes */
+node_bucket **create_node_buckets(status *policy, server_info *sinfo);
+
+/* match job's request to buckets and allocate */
+int bucket_match(chunk_map **cmap, resource_resv *resresv, schd_error *err);
+/* convert chunk_map->node_bits into nspec array */
 nspec **bucket_to_nspecs(status *policy, chunk_map **cmap, resource_resv *resresv);
-int node_can_fit_job_time(int node_ind, resource_resv *resresv, time_t time_now);
 
+/* can a job completely fit on a node before it is busy */
+int node_can_fit_job_time(int node_ind, resource_resv *resresv);
+
+/* bucket version of a = b */
 void set_working_bucket_to_truth(node_bucket *nb);
 void set_chkpt_bucket_to_working(node_bucket *nb);
 void set_working_bucket_to_chkpt(node_bucket *nb);
 void set_chkpt_bucket_to_truth(node_bucket *nb);
 void set_truth_bucket_to_chkpt(node_bucket *nb);
 
-
+/* chunk_map constructor, copy constructor, destructor */
 chunk_map *new_chunk_map();
 chunk_map *dup_chunk_map(chunk_map *ocmap);
 void free_chunk_map(chunk_map *cmap);
 void free_chunk_map_array(chunk_map **cmap_arr);
 chunk_map **dup_chunk_map_array(chunk_map **ocmap_arr);
 
-int find_snode_ind(snode **snodes, int rank);
-snode **create_snodes(node_info **nodes);
+/* snode constructor, copy constructor, destructor */
 snode *new_snode();
 void free_snode(snode *s);
 void free_snode_array(snode **sa);
-snode *copy_snode(snode *os);
-snode **copy_snode_array(snode **osa);
+snode **dup_snode_array(snode **osa, node_info **ninfo_arr, timed_event *timed_event_list);
 
+/* find index of snode by rank */
+int find_snode_ind(snode **snodes, int rank);
+
+/* create snodes from nodes */
+snode **create_snodes(node_info **nodes);
+
+/* decide of a job should use the node_bucket path */
 int job_should_use_buckets(resource_resv *resresv);
 
-
-
-
-
-
-
-
+/* Check to see if a job can run on nodes via the node_bucket codepath */
+nspec **check_node_buckets(status *policy, server_info *sinfo, resource_resv *resresv, schd_error *err);
+/* map job to buckets that can satisfy */
+chunk_map **find_correct_buckets(status *policy, node_bucket **buckets, resource_resv *resresv, schd_error *err);
 
 #ifdef	__cplusplus
 }

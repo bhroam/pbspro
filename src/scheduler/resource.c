@@ -583,10 +583,6 @@ reset_global_resource_ptrs(void)
 		allres = NULL;
 	}
 	clear_limres();
-	if (conf.node_bucket_resdef != NULL) {
-		free(conf.node_bucket_resdef);
-		conf.node_bucket_resdef = NULL;
-	}
 }
 
 /**
@@ -760,8 +756,6 @@ update_resource_defs(int pbs_sd)
 				error = 1;
 		}
 		update_sorting_defs(SD_UPDATE);
-		if (conf.node_bucket_res != NULL)
-			conf.node_bucket_resdef = resstr_to_resdef(conf.node_bucket_res);
 	}
 	else
 		error = 1;

@@ -561,7 +561,8 @@ enum check_flags {
 	COMPARE_TOTAL = 32,
 	ONLY_COMP_NONCONS = 64,
 	ONLY_COMP_CONS = 128,
-	/* next flag 256 */
+	USE_BUCKETS = 256
+	/* next flag 512 */
 };
 
 enum schd_error_args {

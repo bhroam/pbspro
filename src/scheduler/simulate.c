@@ -694,10 +694,14 @@ calc_run_time(char *name, server_info *sinfo, int flags)
 		desc = describe_simret(ret);
 		if (desc > 0 || (desc == 0 && policy_change_info(sinfo, resresv))) {
 			clear_schd_error(err);
-			if (resresv->is_job)
-				ns = is_ok_to_run(sinfo->policy, -1, sinfo, resresv->job->queue, resresv, NO_FLAGS, err);
+			if (resresv->is_job) {
+				if (flags & USE_BUCKETS)
+					ns = is_ok_to_run(sinfo->policy, sinfo, resresv->job->queue, resresv, USE_BUCKETS, err);
+				else
+					ns = is_ok_to_run(sinfo->policy, sinfo, resresv->job->queue, resresv, NO_FLAGS, err);
+			}
 			else
-				ns = is_ok_to_run(sinfo->policy, -1, sinfo, NULL, resresv, NO_FLAGS, err);
+				ns = is_ok_to_run(sinfo->policy, sinfo, NULL, resresv, NO_FLAGS, err);
 		}
 
 		if (ns == NULL) /* event can not run */
@@ -767,74 +771,6 @@ calc_run_time(char *name, server_info *sinfo, int flags)
 	return event_time;
 }
 
-/*
- * @brief calculate the start time of a resresv using the bucket algorithm
- * 
- * @param[in] policy - policy info
- * @param[in] resresv - resresv to calculate start time for
- * @param[in] sinfo - universe 
- * 
- * @return start time of resresv
- * @retval 0 failure
- * @retval -1 error
- */	
-time_t 
-calc_run_time_bucket(status *policy, resource_resv *resresv, server_info *sinfo)
-{
-	resource_resv *erev;
-	timed_event *e;
-	static schd_error *err;
-	int cmap_rc = 0;
-	chunk_map **cmap;
-	unsigned int mask = TIMED_RUN_EVENT|TIMED_END_EVENT;
-	time_t logical_time;
-
-	
-	if(sinfo == NULL || resresv == NULL)
-		return -1;
-	
-	if(err == NULL) {
-		err = new_schd_error();
-		if(err == NULL)
-			return -1;
-	}
-	
-	cmap = find_correct_buckets(sinfo->cal_buckets, resresv, err);
-	if(cmap == NULL) /* Job can't fit into any bucket.  It can never run */
-		return 0;
-		
-	for(e = find_init_timed_event(sinfo->calendar->next_event, 1, mask); e != NULL;
-		e = find_next_timed_event(e, 1, mask)) {
-		int i;
-
-		
-		logical_time = e->event_time;
-		erev = (resource_resv *) e->event_ptr;
-		
-		for(i = 0; erev->nspec_arr[i] != NULL; i++) {
-			if(e->event_type & TIMED_END_EVENT) {
-				update_snode_on_end(sinfo->snodes[erev->nspec_arr[i]->ninfo->node_ind], sinfo->cal_buckets);
-			} else if(e->event_type & TIMED_RUN_EVENT) {
-				update_snode_on_run(sinfo->snodes[erev->nspec_arr[i]->ninfo->node_ind], sinfo->cal_buckets, erev);
-			}
-		}
-		
-		if(cmap_rc = bucket_match(cmap, resresv, logical_time))
-			break;
-	}
-	
-	/* Ran to the end of time and didn't find a match */
-	if (cmap_rc == 0) {
-		free_chunk_map_array(cmap);
-		return 0;
-	}
-
-	resresv->nspec_arr = bucket_to_nspecs(policy, cmap, resresv);
-	free_chunk_map_array(cmap);
-	
-	return logical_time;
-}
-	
 /**
  * @brief
  * 		create an event_list from running jobs and confirmed resvs
@@ -1130,6 +1066,10 @@ free_te_list(te_list *tel) {
 te_list *
 dup_te_list(te_list *ote, timed_event *new_timed_event_list, int copy) {
 	te_list *nte;
+
+	if(ote == NULL || new_timed_event_list == NULL)
+		return NULL;
+
 	nte = new_te_list();
 	if(nte == NULL)
 		return NULL;
@@ -1157,9 +1097,16 @@ dup_te_lists(te_list *ote, timed_event *new_timed_event_list, int copy) {
 	te_list *end_te = NULL;
 	te_list *cur;
 	te_list *nte_head = NULL;
+
+	if (ote == NULL || new_timed_event_list == NULL)
+		return NULL;
 	
 	for(cur = ote; cur != NULL; cur = cur->next) {
 		nte = dup_te_list(cur, new_timed_event_list, copy);
+		if (nte == NULL) {
+			free_te_list(nte_head);
+			return NULL;
+		}
 		if(end_te != NULL) 
 			end_te->next = nte;
 		else
@@ -1221,7 +1168,7 @@ remove_te_list(te_list **tel, timed_event *e)
 	te_list *prev_tel;
 	te_list *cur_tel;
 	
-	if(tel == NULL || e == NULL)
+	if(tel == NULL || *tel == NULL || e == NULL)
 		return 0;
 	
 	prev_tel = NULL;
@@ -1775,7 +1722,7 @@ simulate_resmin(schd_resource *reslist, time_t end, event_list *calendar,
 	for (te = find_init_timed_event(te, IGNORE_DISABLED_EVENTS, event_mask);
 		te != NULL && (end == 0 || te->event_time < end);
 		te = find_next_timed_event(te, IGNORE_DISABLED_EVENTS, event_mask)) {
-		resresv = (resource_resv*) te->event_ptr;
+		resresv = (resource_resv *) te->event_ptr;
 		if (incl_arr == NULL || find_resource_resv_by_rank(incl_arr, resresv->rank) !=NULL) {
 			if (resresv != exclude) {
 				req = resresv->resreq;

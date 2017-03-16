@@ -376,7 +376,7 @@ query_node_info(struct batch_status *node, server_info *sinfo)
 				}
 
 				if(res->def == getallres(RES_MEM))
-					res->avail -= (long) res->avail % 256;
+					res->avail -= (long) res->avail % 1024;
 #ifdef NAS /* localmod 034 */
 				site_set_node_share(ninfo, res);
 #endif /* localmod 034 */
@@ -1281,6 +1281,7 @@ dup_node_info(node_info *onode, server_info *nsinfo,
  *
  * @param[in]	oarr	-	the old array (filtered array)
  * @param[in]	narr	-	the new array (entire node array)
+ * @param[in]	use_ind	-	use node index instead of node rank
  *
  * @return	copied array
  * @retval	NULL	: on error
@@ -1316,7 +1317,7 @@ copy_node_ptr_array(node_info  **oarr, node_info  **narr)
 			ninfo = sinfo->nodes_by_NASrank[oarr[i]->NASrank];
 		else
 #endif /* localmod 049 */
-		ninfo = find_node_by_rank(narr, oarr[i]->rank);
+		ninfo = find_node_by_indrank(narr, oarr[i]->node_ind, oarr[i]->rank);
 
 		if (ninfo == NULL) {
 			free(ninfo_arr);
@@ -1659,6 +1660,9 @@ update_snode_on_run(snode *sn, node_bucket **buckets, resource_resv *resresv) {
 	node_bucket *bkt;
 	timed_event *te;
 	
+	if(sn->bucket_ind == -1) /* snode not part of a bucket */
+		return;
+	
 	ind = sn->ninfo->node_ind;
 
 	for(te = resresv->server->calendar->next_event; te != NULL; te = te->next) {
@@ -1809,10 +1813,16 @@ update_snode_on_end(snode *sn, node_bucket **buckets)
 {
 	int ind;
 	node_bucket *bkt;
+
+	if(sn == NULL || buckets == NULL)
+		return;
+	
+	if(sn->bucket_ind == -1) /* snode not part of a bucket */
+		return;
 	
 	ind = sn->ninfo->node_ind;
 	bkt = buckets[sn->bucket_ind];
-	
+		
 	if (sn->node_events == NULL) {
 		pbs_bitmap_bit_on(bkt->free->truth, ind);
 		bkt->free->truth_ct++;
@@ -1966,7 +1976,7 @@ dup_nspec(nspec *ons, node_info **ninfo_arr)
 		nns->ninfo = sinfo->nodes_by_NASrank[ons->ninfo->NASrank];
 	else
 #endif /* localmod 049 */
-	nns->ninfo = find_node_by_rank(ninfo_arr, ons->ninfo->rank);
+	nns->ninfo = find_node_by_indrank(ninfo_arr, ons->ninfo->node_ind, ons->ninfo->rank);
 	nns->resreq = dup_resource_req_list(ons->resreq);
 
 	return nns;
@@ -3395,7 +3405,7 @@ is_vnode_eligible_chunk(resource_req *specreq, node_info *node,
  *		Note: This function will allocate <= 1 chunk
  *
  * @param[in][out] specreq_cons - IN : requested consumable resources
- *				 				  OUT: requested - allocated resources
+ *				  OUT: requested - allocated resources
  * @param[in]	node	-	the node to evaluate
  * @param[in]	pl	-	place spec for request
  * @param[in]	resresv	-	resource resv which is requesting
@@ -3445,7 +3455,7 @@ resources_avail_on_vnode(resource_req *specreq_cons, node_info *node,
 
 				if (!node->lic_lock && (cur_flt_lic < num_chunks) &&
 					!strcmp(req->name, "ncpus"))
-					/* if we can allocate more cpus than we have floating licenses,
+				/* if we can allocate more cpus than we have floating licenses,
 				 * we will allocate the number of floating licenses we have.  It
 				 * is still possible that more nodelocked licensed nodes are farther
 				 * down the node list and we can still satisfy the request.
@@ -4407,7 +4417,7 @@ create_node_array_from_nspec(nspec **nspec_arr)
 	ninfo_arr[0] = NULL;
 
 	for (i = 0, j = 0; nspec_arr[i] != NULL; i++) {
-		if (find_node_by_rank(ninfo_arr, nspec_arr[i]->ninfo->rank) ==NULL) {
+		if (find_node_by_rank(ninfo_arr, nspec_arr[i]->ninfo->rank) == NULL) {
 			ninfo_arr[j] = nspec_arr[i]->ninfo;
 			j++;
 		}
@@ -4944,8 +4954,12 @@ is_provisionable(node_info *node, resource_resv *resresv, schd_error *err)
 			return NOT_PROVISIONABLE;
 		}
 
+		/* PROV_DISABLE_ON_SERVER is NOT_RUN instead of NEVER RUN.
+		 * Even though we can't provision any nodes, there might be
+		 * enough nodes in the correct aoe to run the job.
+		 */
 		if (!resresv->server->provision_enable) {
-			set_schd_error_codes(err, NEVER_RUN, PROV_DISABLE_ON_SERVER);
+			set_schd_error_codes(err, NOT_RUN, PROV_DISABLE_ON_SERVER);
 			return NOT_PROVISIONABLE;
 		}
 
@@ -5206,6 +5220,16 @@ find_node_by_rank(node_info **ninfo_arr, int rank)
 	return ninfo_arr[ind];
 }
 
+node_info *find_node_by_indrank(node_info **ninfo_arr, int ind, int rank) {
+	if(ninfo_arr == NULL || *ninfo_arr == NULL)
+		return NULL;
+	
+	if(ninfo_arr[0] == NULL || ninfo_arr[0]->server == NULL || ninfo_arr[0]->server->unsorted_nodes == NULL)
+		return find_node_by_rank(ninfo_arr, rank);
+	
+	return ninfo_arr[0]->server->unsorted_nodes[ind];
+}
+
 /**
  * @brief
  * 		node_scratch constructor
@@ -5450,11 +5474,18 @@ node_info **add_node_to_array(node_info **ninfo_arr, node_info *node) {
 	
 	if (ninfo_arr == NULL)
 		return NULL;
+
 	if(node == NULL)
 		return ninfo_arr;
 	
 	ct = count_array((void **)ninfo_arr);
-	
+
+	/*
+	 * +2 because count_array() returns the number of nodes in the array sans the sentinel.
+	 * We need to add +1 for the sentinel and +1 for the new node
+	 */
+
+
 	tmp = realloc(ninfo_arr, (ct + 2) * sizeof(node_info *));
 	if(tmp == NULL) {
 		log_err(errno, __func__, MEM_ERR_MSG);
@@ -5467,8 +5498,20 @@ node_info **add_node_to_array(node_info **ninfo_arr, node_info *node) {
 	return tmp;
 }
 
+/**
+ * @brief add a node to all the nodes associated to a calendar event
+ * @param te - event
+ * @param nspecs - nspecs[i]->node is the node to add the event to
+ * @return int
+ * @retval 1 success
+ * @retval 0 error
+ */
 int add_event_to_nodes(timed_event *te, nspec **nspecs) {
 	int i;
+
+	if (te == NULL || nspecs == NULL)
+		return 0;
+
 	for(i = 0; nspecs[i] != NULL; i++) {
 		te_list *tel;
 		te_list *end_tel = NULL;
@@ -5487,6 +5530,13 @@ int add_event_to_nodes(timed_event *te, nspec **nspecs) {
 	return 1;
 }
 
+/**
+ * @brief function pointer argument to generic_sim() to add an event to nodes
+ * @param te - event
+ * @param arg1 - unused
+ * @param arg2 - unused
+ * @return @see generic_sim()
+ */
 int add_node_events(timed_event *te, void *arg1, void *arg2) {
 	int i;
 	nspec **nspecs;

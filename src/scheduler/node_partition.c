@@ -1068,8 +1068,7 @@ create_placement_sets(status *policy, server_info *sinfo)
 	char *resstr[] = {"host", NULL};
 	int num;
 
-	sinfo->allpart = create_specific_nodepart(policy, "all",
-		sinfo->unassoc_nodes);
+	sinfo->allpart = create_specific_nodepart(policy, "all", sinfo->unassoc_nodes);
 	if (sinfo->has_multi_vnode) {
 		sinfo->hostsets = create_node_partitions(policy, sinfo->nodes,
 			resstr, policy->only_explicit_psets ? NO_FLAGS : NP_CREATE_REST, &num);

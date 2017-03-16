@@ -355,6 +355,7 @@ struct server_info
 	snode **snodes;
 	node_bucket **buckets;		/* node bucket array */
 	node_bucket **cal_buckets;	/* dup'd buckets used for calendaring */
+	node_info **unsorted_nodes;
 #ifdef NAS
 	/* localmod 049 */
 	node_info **nodes_by_NASrank;	/* nodes indexed by NASrank */
@@ -600,7 +601,7 @@ struct node_info
 	node_scratch nscr;		/* scratch space local to node search code */
 	te_list *node_events;		/* list of events that affect the node */
 	int bucket_ind;			/* index in server's bucket array */
-	int node_ind;			/* node's index into sinfo->nodes */
+	int node_ind;			/* node's index into sinfo->unsorted_nodes */
 };
 
 struct resv_info
@@ -707,7 +708,7 @@ struct schd_resource
 	sch_resource_t assigned;	/* amount of the resource assigned */
 	char *str_assigned;		/* the string form of assigned */
 
-	resdef *def;                  /* resource definition */
+	resdef *def;			/* resource definition */
 
 	struct schd_resource *next;	/* next resource in list */
 };
@@ -1024,8 +1025,6 @@ struct config
 	char **dyn_res_to_get;			/* dynamic resources to get from moms */
 	char **res_to_check;			/* the resources schedule on */
 	resdef **resdef_to_check;		/* the res to schedule on in def form */
-	char **node_bucket_res;			/* resources used to create nasa buckets*/
-	resdef **node_bucket_resdef;		/* nasa_bucket_resources as resdef */
 	char **ignore_res;			/* resources - unset implies infinite */
 	int num_res_to_check;			/* the size of res_to_check */
 	time_t max_starve;			/* starving threshold */
@@ -1104,7 +1103,6 @@ struct node_bucket {
 	bucket_bitpool *busy_later;	/* bit pool of nodes that are free now, but are busy later */
 	bucket_bitpool *busy;		/* bit pool of nodes that are busy now */
 	int total;			/* total number of nodes in bucket */
-	int down_offline;		/* number of nodes in bucket that are in the down or offline state */
 };
 
 struct chunk_map {

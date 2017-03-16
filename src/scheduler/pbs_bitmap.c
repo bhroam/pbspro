@@ -43,7 +43,14 @@
 #define BYTES_TO_BITS(x) ((x) * 8)
 
 
-
+/**
+ * @brief allocate space for a pbs_bitmap (and possibly the bitmap itself)
+ * @param pbm - bitmap to allocate space for.  NULL to allocate a new bitmap
+ * @param num_bits - number of bits to allocate
+ * @return pbs_bitmap *
+ * @retval bitmap which was allocated
+ * @retval NULL on error
+ */
 pbs_bitmap *
 pbs_bitmap_alloc(pbs_bitmap *pbm, long num_bits)
 {
@@ -96,6 +103,7 @@ pbs_bitmap_alloc(pbs_bitmap *pbm, long num_bits)
 	return bm;
 }
 
+/* pbs_bitmap destructor */
 void
 pbs_bitmap_free(pbs_bitmap *bm)
 {
@@ -105,6 +113,12 @@ pbs_bitmap_free(pbs_bitmap *bm)
 	free(bm);
 }
 
+/**
+ * @brief turn a bit on for a bitmap
+ * @param pbm - the bitmap
+ * @param bit - which bit to turn on
+ * @return nothing
+ */
 int
 pbs_bitmap_bit_on(pbs_bitmap *pbm, long bit)
 {
@@ -128,6 +142,12 @@ pbs_bitmap_bit_on(pbs_bitmap *pbm, long bit)
 	return 1;
 }
 
+/**
+ * @brief turn a bit off for a bitmap
+ * @param pbm - the bitmap
+ * @param bit - the bit to turn off
+ * @return nothing
+ */
 int
 pbs_bitmap_bit_off(pbs_bitmap *pbm, long bit)
 {
@@ -149,6 +169,14 @@ pbs_bitmap_bit_off(pbs_bitmap *pbm, long bit)
 	return 1;
 }
 
+/**
+ * @brief get the value of a bit
+ * @param pbm - the bitmap
+ * @param bit - which bit to get the value of
+ * @return int
+ * @retval 1 if the bit is on
+ * @retval 0 if the bit is off
+ */
 int
 pbs_bitmap_get_bit(pbs_bitmap *pbm, unsigned long bit)
 {
@@ -167,6 +195,83 @@ pbs_bitmap_get_bit(pbs_bitmap *pbm, unsigned long bit)
 	return (pbm->bits[n] & b) ? 1 : 0;
 }
 
+/**
+ * @brief starting at a bit, get the next on bit
+ * @param pbm - the bitmap
+ * @param start_bit - which bit to start from
+ * @return int
+ * @retval number of next on bit
+ * @retval -1 on error
+ */
+int
+pbs_bitmap_get_next_on_bit(pbs_bitmap *pbm, long start_bit)
+{
+	long long_ind;
+	long local_bit_ind;
+	int i;
+	
+	if (pbm == NULL)
+		return -1;
+	
+	if (start_bit >= pbm->num_bits)
+		return -1;
+	
+	long_ind = start_bit / BYTES_TO_BITS(sizeof(unsigned long));
+	local_bit_ind = start_bit % BYTES_TO_BITS(sizeof(unsigned long));
+
+	/* special case - look at first long that contains start_bit */
+	if (pbm->bits[long_ind] != 0) {
+		for (i = local_bit_ind + 1; i < BYTES_TO_BITS(sizeof(unsigned long)); i++) {
+			if (pbm->bits[long_ind] & (1UL << i)) {
+				return (long_ind * BYTES_TO_BITS(sizeof(unsigned long)) + i);
+			}
+		}
+
+		/* didn't find an on bit after start_bit_index in the long that contained start_bit */
+		if (long_ind < pbm->num_longs) {
+			long_ind++;
+		}
+	}
+
+	for( ; long_ind < pbm->num_longs && pbm->bits[long_ind] == 0; long_ind++)
+		;
+
+	if (long_ind == pbm->num_longs)
+		return -1;
+
+	for (i = 0 ; i < BYTES_TO_BITS(sizeof(unsigned long)) ; i++) {
+		if (pbm->bits[long_ind] & (1UL << i)) {
+			return (long_ind * BYTES_TO_BITS(sizeof(unsigned long)) + i);
+		}
+	}
+
+	return -1;
+}
+
+/**
+ * @brief get the first on bit
+ * @param bm - the bitmap
+ * @return int
+ * @retval the bit number of the first on bit
+ * @retval -1 on error
+ */
+int pbs_bitmap_first_bit(pbs_bitmap *bm)
+{
+	int i;
+	if(pbs_bitmap_get_bit(bm, 0))
+		return 0;
+	
+	return pbs_bitmap_get_next_on_bit(bm, 0);
+}
+
+/**
+ * @brief pbs_bitmap version of L = R
+ * @param L - bitmap lvalue
+ * @param R - bitmap rvalue
+ * @return int
+ * @retval 1 success
+ * @retval 0 failure
+ */
 int
 pbs_bitmap_equals(pbs_bitmap *L, pbs_bitmap *R)
 {
@@ -195,6 +300,14 @@ pbs_bitmap_equals(pbs_bitmap *L, pbs_bitmap *R)
 	return 1;
 }
 
+/**
+ * @brief pbs_bitmap version of L == R
+ * @param L - bitmap lvalue
+ * @param R - bitmap rvalue
+ * @return int
+ * @retval 1 bitmaps are equal
+ * @retval 0 bitmaps are not equal
+ */
 int
 pbs_bitmap_is_equal(pbs_bitmap *L, pbs_bitmap *R)
 {
@@ -213,6 +326,12 @@ pbs_bitmap_is_equal(pbs_bitmap *L, pbs_bitmap *R)
 	return 1;
 }
 
+/**
+ * @brief count the number of on bits
+ * @param bm - the bitmap
+ * @return int
+ * @retval number of on bits
+ */
 int
 pbs_bitmap_count(pbs_bitmap *bm)
 {
@@ -223,27 +342,4 @@ pbs_bitmap_count(pbs_bitmap *bm)
 			ct++;
 	
 	return ct;
-}
-
-#include <string.h>
-char *
-pbs_bitmap_print(pbs_bitmap *bm) 
-{
-	int i;
-	
-	static char buf[2048];
-	buf[0] = '\0';
-	
-	for(i=bm->num_bits; i >= 0; i--)
-		strcat(buf, pbs_bitmap_get_bit(bm, i) ? "1" : "0");
-	
-	return buf;
-}
-
-int pbs_bitmap_first_bit(pbs_bitmap *bm)
-{
-	int i;
-	for(i = 0; i < bm->num_bits; i++)
-		if(pbs_bitmap_get_bit(bm, i))
-			return i;
 }
