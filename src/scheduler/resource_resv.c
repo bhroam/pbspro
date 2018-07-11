@@ -1706,6 +1706,7 @@ new_chunk()
 	ch->num_chunks = 0;
 	ch->seq_num = 0;
 	ch->str_chunk = NULL;
+	ch->group = NULL;
 	ch->req = NULL;
 
 	return ch;
@@ -1778,6 +1779,7 @@ dup_chunk(chunk *ochunk)
 	nchunk->num_chunks = ochunk->num_chunks;
 	nchunk->seq_num = ochunk->seq_num;
 	nchunk->str_chunk = string_dup(ochunk->str_chunk);
+	nchunk->group = string_dup(ochunk->group);
 	nchunk->req = dup_resource_req_list(ochunk->req);
 
 	if (nchunk->req == NULL) {
@@ -1825,6 +1827,9 @@ free_chunk(chunk *ch)
 	if (ch->str_chunk != NULL)
 		free(ch->str_chunk);
 
+	if (ch->group != NULL)
+		free(ch->group);
+
 	if (ch->req != NULL)
 		free_resource_req_list(ch->req);
 
@@ -1848,6 +1853,7 @@ new_selspec()
 		return NULL;
 	}
 
+	spec->has_chunk_group = 0;
 	spec->total_chunks = 0;
 	spec->total_cpus = 0;
 	spec->defs = NULL;
@@ -1880,6 +1886,7 @@ dup_selspec(selspec *oldspec)
 
 	newspec->total_chunks = oldspec->total_chunks;
 	newspec->total_cpus = oldspec->total_cpus;
+	newspec->has_chunk_group = oldspec->has_chunk_group;
 	newspec->chunks = dup_chunk_array(oldspec->chunks);
 	newspec->defs = copy_resdef_array(oldspec->defs);
 

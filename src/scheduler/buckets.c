@@ -926,6 +926,75 @@ int job_should_use_buckets(resource_resv *resresv) {
 		
 }
 
+/**
+ * @brief find buckets that match a chunk
+ *
+ * @param[in] policy - policy info
+ * @param[in] chk - the chunk to match
+ * @param[in] buckets - the buckets to match against
+ * @param[in] resresv - the job
+ * @param[out] cb_map - the chunk_map to return the matching
+ * @param[out] err - the reason the job can't run if it can't.
+ *
+ * @return total chunks matched
+ * @retval -1 on error
+ */
+int find_correct_buckets_chunk(status *policy, chunk *chk, node_bucket **buckets, resource_resv *resresv, chunk_map *cb_map, schd_error *err) {
+	int j;
+	int b = 0;
+	int total = 0;
+	static schd_error *failerr = NULL;
+
+	if (policy == NULL || chk == NULL || buckets == NULL || resresv == NULL || cb_map == NULL || err == NULL)
+		return 0;
+
+	if (failerr == NULL) {
+		failerr = new_schd_error();
+		if (failerr == NULL)
+			return 0;
+	} else
+		clear_schd_error(failerr);
+
+	for (j = 0; buckets[j] != NULL; j++) {
+		queue_info *qinfo = NULL;
+
+		if (resresv->job != NULL && resresv->job->queue->nodes != NULL)
+			qinfo = resresv->job->queue;
+
+		if (buckets[j]->queue == qinfo) {
+			int c;
+			c = check_avail_resources(buckets[j]->res_spec, chk->req,
+						  (CHECK_ALL_BOOLS | COMPARE_TOTAL | UNSET_RES_ZERO),
+						  policy->resdef_to_check_no_hostvnode, INSUFFICIENT_RESOURCE, err);
+			if (c > 0) {
+				if (resresv->place_spec->scatter || resresv->place_spec->vscatter)
+					c = 1;
+
+
+				cb_map->bkt_cnts[b] = new_node_bucket_count();
+				if(cb_map->bkt_cnts[b] == NULL) {
+					set_schd_error_codes(err, NOT_RUN, SCHD_ERROR);
+					return -1;
+				}
+				cb_map->bkt_cnts[b]->bkt = buckets[j];
+				cb_map->bkt_cnts[b++]->chunk_count = c;
+				total += buckets[j]->total * c;
+			} else {
+				if (failerr->status_code == SCHD_UNKWN)
+					move_schd_error(failerr, err);
+				clear_schd_error(err);
+			}
+		}
+	}
+
+	if (total < chk->num_chunks) {
+		if (err->status_code == SCHD_UNKWN && failerr->status_code != SCHD_UNKWN)
+			move_schd_error(err, failerr);
+	}
+
+	return total;
+}
+
 /*
  * @brief - create a mapping of chunks to the buckets they can run in.
  * 	    The mapping will be of the chunks to all the buckets that can satisfy them.
@@ -948,7 +1017,7 @@ find_correct_buckets(status *policy, node_bucket **buckets, resource_resv *resre
 {
 	int bucket_ct;
 	int chunk_ct;
-	int i, j;
+	int i;
 	int can_run = 1;
 	chunk_map **cb_map;
 	static struct schd_error *failerr = NULL;
@@ -975,14 +1044,17 @@ find_correct_buckets(status *policy, node_bucket **buckets, resource_resv *resre
 	}
 
 	for (i = 0; resresv->select->chunks[i] != NULL; i++) {
-		int total = 0;
-		int b = 0;
+		int chk_total = 0;
+		chunk *chk;
+
+		chk = resresv->select->chunks[i];
+
 		cb_map[i] = new_chunk_map();
 		if (cb_map[i] == NULL) {
 			free_chunk_map_array(cb_map);
 			return NULL;
 		}
-		cb_map[i]->chunk = resresv->select->chunks[i];
+		cb_map[i]->chunk = chk;
 		cb_map[i]->bkt_cnts = calloc(bucket_ct + 1, sizeof(node_bucket_count *));
 		if (cb_map[i]->bkt_cnts == NULL) {
 			log_err(errno, __func__, MEM_ERR_MSG);
@@ -990,42 +1062,34 @@ find_correct_buckets(status *policy, node_bucket **buckets, resource_resv *resre
 			set_schd_error_codes(err, NOT_RUN, SCHD_ERROR);
 			return NULL;
 		}
-		for (j = 0; buckets[j] != NULL && can_run; j++) {
-			queue_info *qinfo = NULL;
+		if (chk->group != NULL) {
+			np_cache *npc;
+			node_info **ninfo_arr;
+			char *grouparr[2] = {0};
+			int j;
 
-			if (resresv->job != NULL && resresv->job->queue->nodes != NULL)
-				qinfo = resresv->job->queue;
+			grouparr[0] = chk->group;
+			if (resresv->job->queue->nodes != NULL)
+				ninfo_arr = resresv->job->queue->nodes;
+			else
+				ninfo_arr = resresv->server->unassoc_nodes;
 
-			if (buckets[j]->queue == qinfo) {
-				int c;
-				c = check_avail_resources(buckets[j]->res_spec, resresv->select->chunks[i]->req,
-							  (CHECK_ALL_BOOLS | COMPARE_TOTAL | UNSET_RES_ZERO),
-							  policy->resdef_to_check_no_hostvnode, INSUFFICIENT_RESOURCE, err);
-				if (c > 0) {
-					if (resresv->place_spec->scatter || resresv->place_spec->vscatter)
-						c = 1;
-
-
-					cb_map[i]->bkt_cnts[b] = new_node_bucket_count();
-					if(cb_map[i]->bkt_cnts[b] == NULL) {
-						free_chunk_map_array(cb_map);
-						set_schd_error_codes(err, NOT_RUN, SCHD_ERROR);
-						return NULL;
-					}
-					cb_map[i]->bkt_cnts[b]->bkt = buckets[j];
-					cb_map[i]->bkt_cnts[b++]->chunk_count = c;
-					total += buckets[j]->total * c;
-				} else {
-					if (failerr->status_code == SCHD_UNKWN)
-						move_schd_error(failerr, err);
-				}
-				clear_schd_error(err);
+			npc = find_alloc_np_cache(policy, &resresv->server->npc_arr, grouparr, ninfo_arr, cmp_placement_sets);
+			for (j = 0; npc->nodepart[j] != NULL; j++) {
+				chk_total = find_correct_buckets_chunk(policy, chk, npc->nodepart[j]->bkts, resresv, cb_map[i], err);
+				if (chk_total >= chk->num_chunks)
+					break;
 			}
+
 		}
-		
-		/* No buckets match or not enough nodes in the buckets: the job can't run */
-		if(b == 0 || total < cb_map[i]->chunk->num_chunks)
+		else
+			chk_total = find_correct_buckets_chunk(policy, chk, buckets, resresv, cb_map[i], err);
+
+		if (chk_total < chk->num_chunks) {
 			can_run = 0;
+			if (failerr->status_code == SCHD_UNKWN)
+				move_schd_error(failerr, err);
+		}
 	}
 	cb_map[i] = NULL;
 
@@ -1066,34 +1130,36 @@ check_node_buckets(status *policy, server_info *sinfo, queue_info *qinfo, resour
 	if (resresv->is_job && qinfo == NULL)
 		return NULL;
 
-	if (resresv->is_job && qinfo->nodepart != NULL)
-		nodepart = qinfo->nodepart;
-	else if (sinfo->nodepart != NULL)
-		nodepart = sinfo->nodepart;
-	else
-		nodepart = NULL;
-
-	/* job's place=group=res replaces server or queue node grouping
-	 * We'll search the node partition cache for the job's pool of node partitions
-	 * If it doesn't exist, we'll create it and add it to the cache
-	 */
-	if (resresv->place_spec->group != NULL) {
-		char *grouparr[2] = {0};
-		np_cache *npc = NULL;
-		node_info **ninfo_arr;
-
-		if (qinfo->has_nodes)
-			ninfo_arr = qinfo->nodes;
-		else if (qinfo->partition != NULL)
-			ninfo_arr = qinfo->nodes_in_partition;
+	if (!resresv->select->has_chunk_group) {
+		if (resresv->is_job && qinfo->nodepart != NULL)
+			nodepart = qinfo->nodepart;
+		else if (sinfo->nodepart != NULL)
+			nodepart = sinfo->nodepart;
 		else
-			ninfo_arr = sinfo->unassoc_nodes;
+			nodepart = NULL;
 
-		grouparr[0] = resresv->place_spec->group;
-		grouparr[1] = NULL;
-		npc = find_alloc_np_cache(policy, &(sinfo->npc_arr), grouparr, ninfo_arr, cmp_placement_sets);
-		if (npc != NULL)
-			nodepart = npc->nodepart;
+		/* job's place=group=res replaces server or queue node grouping
+		 * We'll search the node partition cache for the job's pool of node partitions
+		 * If it doesn't exist, we'll create it and add it to the cache
+		 */
+		if (resresv->place_spec->group != NULL) {
+			char *grouparr[2] = {0};
+			np_cache *npc = NULL;
+			node_info **ninfo_arr;
+
+			if (qinfo->has_nodes)
+				ninfo_arr = qinfo->nodes;
+			else if (qinfo->partition != NULL)
+				ninfo_arr = qinfo->nodes_in_partition;
+			else
+				ninfo_arr = sinfo->unassoc_nodes;
+
+			grouparr[0] = resresv->place_spec->group;
+			grouparr[1] = NULL;
+			npc = find_alloc_np_cache(policy, &(sinfo->npc_arr), grouparr, ninfo_arr, cmp_placement_sets);
+			if (npc != NULL)
+				nodepart = npc->nodepart;
+		}
 	}
 	if (nodepart != NULL) {
 		int i;

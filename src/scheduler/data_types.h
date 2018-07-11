@@ -204,6 +204,7 @@ struct place
 struct chunk
 {
 	char *str_chunk;		/* chunk in string form */
+	char *group;			/* chunk level node grouping request */
 	int num_chunks;			/* the number of chunks needed */
 	int seq_num;			/* the chunk sequence number */
 	resource_req *req;		/* the resources in resource_req form */
@@ -211,7 +212,8 @@ struct chunk
 
 struct selspec
 {
-	int total_chunks;
+	unsigned has_chunk_group:1;	/* select has a group request at the chunk level */
+	int total_chunks;		/* total number of chunks in select spec */
 	int total_cpus;			/* # of cpus requested in this select spec */
 	resdef **defs;			/* the resources requested by this select spec*/
 	chunk **chunks;

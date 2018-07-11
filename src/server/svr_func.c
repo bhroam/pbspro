@@ -263,7 +263,6 @@ extern int sync_mom_hookfiles_proc_running;
 /*
  * Miscellaneous server functions
  */
-extern void  est_start_timed_task(struct work_task *);
 extern void db_to_svr_svr(struct server *ps, pbs_db_svr_info_t *pdbsvr);
 #ifdef NAS /* localmod 005 */
 extern int write_single_node_state(struct pbsnode *np);
