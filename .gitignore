@@ -255,3 +255,4 @@ pbspro.spec
 *.rpm
 *.deb
 
+*.fuse_hidden*
