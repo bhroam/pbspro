@@ -4173,6 +4173,8 @@ parse_selspec(char *select_spec)
 
 	tmpptr = NULL;
 	while (tok != NULL && !invalid) {
+		char *group = NULL;
+
 		tmpptr = string_dup(tok);
 #ifdef NAS /* localmod 082 */
 		ret = parse_chunk(tok, 0, &num_chunks, &num_kv, &kv, NULL);
@@ -4182,36 +4184,43 @@ parse_selspec(char *select_spec)
 
 		if (!ret) {
 			for (i = 0; i < num_kv && !invalid; i++) {
-				req = create_resource_req(kv[i].kv_keyw, kv[i].kv_val);
+				if (!strcmp(kv[i].kv_keyw, "group")) {
+					if (group != NULL)
+						free(group);
+					group = string_dup(kv[i].kv_val);
+					spec->has_chunk_group = 1;
+				} else {
+					req = create_resource_req(kv[i].kv_keyw, kv[i].kv_val);
 
-				if (req == NULL)
-					invalid = 1;
-				else  {
-					if (req->def == getallres(RES_NCPUS)) {
-						/* Given: -l select=nchunk1:ncpus=Y + nchunk2:ncpus=Z +...
-						 * Then: # of cpus = (nchunk1 * Y) + (nchunk2 * Z) + ...
-						 */
-						num_cpus += (num_chunks * req->amount);
-					}
-					if (!invalid && (req->type.is_boolean || conf.res_to_check == NULL ||
-						is_string_in_arr(conf.res_to_check, kv[i].kv_keyw))) {
-						if (!resdef_exists_in_array(spec->defs, req->def))
-							add_resdef_to_array(&(spec->defs), req->def);
-						if (req_head == NULL)
-							req_end = req_head = req;
-						else {
-							if (req->type.is_consumable) {
-								req_end->next = req;
-								req_end = req;
-							}
+					if (req == NULL)
+						invalid = 1;
+					else  {
+						if (req->def == getallres(RES_NCPUS)) {
+							/* Given: -l select=nchunk1:ncpus=Y + nchunk2:ncpus=Z +...
+							* Then: # of cpus = (nchunk1 * Y) + (nchunk2 * Z) + ...
+							*/
+							num_cpus += (num_chunks * req->amount);
+						}
+						if (!invalid && (req->type.is_boolean || conf.res_to_check == NULL ||
+							is_string_in_arr(conf.res_to_check, kv[i].kv_keyw))) {
+							if (!resdef_exists_in_array(spec->defs, req->def))
+								add_resdef_to_array(&(spec->defs), req->def);
+							if (req_head == NULL)
+								req_end = req_head = req;
 							else {
-								req->next = req_head;
-								req_head = req;
+								if (req->type.is_consumable) {
+									req_end->next = req;
+									req_end = req;
+								}
+								else {
+									req->next = req_head;
+									req_head = req;
+								}
 							}
 						}
+						else
+							free_resource_req(req);
 					}
-					else
-						free_resource_req(req);
 				}
 			}
 			spec->chunks[n] = new_chunk();
@@ -4220,11 +4229,13 @@ parse_selspec(char *select_spec)
 				spec->chunks[n]->seq_num = seq_num;
 				spec->chunks[n]->req = req_head;
 				spec->chunks[n]->str_chunk = tmpptr;
+				spec->chunks[n]->group = group;
 				spec->total_chunks += num_chunks;
 				spec->total_cpus = num_cpus;
 				tmpptr = NULL;
 				req_head = NULL;
 				req_end = NULL;
+				group = NULL;
 				n++;
 			}
 			else
@@ -4236,14 +4247,6 @@ parse_selspec(char *select_spec)
 		tok = string_token(NULL, "+", &endp);
 		seq_num++;
 	}
-
-	if (spec->chunks[1] != NULL) {
-		spec->has_chunk_group = 1;
-
-		for (i = 0; spec->chunks[i] != NULL; i++)
-			spec->chunks[i]->group = string_dup("model");
-	}
-
 
 	if (invalid) {
 		free_selspec(spec);
