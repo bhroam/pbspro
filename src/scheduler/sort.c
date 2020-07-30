@@ -169,6 +169,14 @@ cmp_placement_sets(const void *v1, const void *v2)
 	np1 = *((node_partition **) v1);
 	np2 = *((node_partition **) v2);
 
+	if (conf.node_group_sort[0].res_name != NULL) {
+		int i;
+		int ret = 0;
+		for (i = 0; i <= MAX_SORTS && ret == 0 && conf.node_group_sort[i].res_name != NULL; i++)
+			ret = node_sort_cmp(v1, v2, &conf.node_group_sort[i], SOBJ_PARTITION);
+		return ret;
+	}
+
 	ncpus1 = find_resource(np1->res, getallres(RES_NCPUS));
 	ncpus2 = find_resource(np2->res, getallres(RES_NCPUS));
 

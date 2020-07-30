@@ -143,6 +143,7 @@
 #define PARSE_STRICT_ORDERING "strict_ordering"
 #define PARSE_RES_UNSET_INFINITE "resource_unset_infinite"
 #define PARSE_SELECT_PROVISION "provision_policy"
+#define PARSE_NODE_GROUP_SORT_KEY "node_group_sort_key"
 
 #ifdef NAS
 /* localmod 034 */

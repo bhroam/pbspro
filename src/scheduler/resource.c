@@ -988,7 +988,7 @@ void update_sorting_defs(int op)
 	char *prefix = NULL;
 
 	/* Job sorts */
-	for (i = 0; i < 4; i++) {
+	for (i = 0; i < 5; i++) {
 		struct sort_info *si;
 		int obj;
 		switch(i)
@@ -1012,6 +1012,11 @@ void update_sorting_defs(int op)
 				si = conf.non_prime_sort;
 				obj = SOBJ_JOB;
 				prefix = "Non-prime job";
+				break;
+			case 4:
+				si = conf.node_group_sort;
+				obj = SOBJ_PARTITION;
+				prefix = "pset";
 				break;
 			default:
 				si = NULL;

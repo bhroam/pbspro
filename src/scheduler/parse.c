@@ -122,7 +122,8 @@ parse_config(char *fname)
 	int npkey_num = 0;		/* number of nonprime time keys for job sort */
 	int node_pkey_num = 0;	/* number of prime time keys for node sort */
 	int node_npkey_num = 0;	/* number of nonprime time keys for node sort */
-	char *sort_res_name;		/* name of resource to sort */
+	int ng_key_num = 0;			/* number of node group sorts */
+	char *sort_res_name;			  /* name of resource to sort */
 	enum sort_order sort_ord = NO_SORT_ORDER; /* sort order: ascend or descend */
 	enum resource_fields sort_type; /* which res attr to use (avail/assn/etc) */
 
@@ -512,14 +513,11 @@ parse_config(char *fname)
 							}
 						}
 					}
-				}
-				else if (!strcmp(config_name, PARSE_NODE_SORT_KEY)) {
-					if (((prime == PRIME || prime == ALL) && node_pkey_num > MAX_SORTS) ||
-						((prime == NON_PRIME || prime == ALL) && node_npkey_num > MAX_SORTS)) {
+				} else if (!strcmp(config_name, PARSE_NODE_GROUP_SORT_KEY)) {
+					if (ng_key_num > MAX_SORTS)
 						log_eventf(PBSEVENT_SCHED, PBS_EVENTCLASS_FILE, LOG_NOTICE, fname,
 							"Too many %s node sorts.  %s sort ignored.  %d max sorts",
 							prime_value, config_value, MAX_SORTS);
-					}
 					else {
 						tok = strtok(config_value, DELIM);
 						sort_res_name = string_dup(tok);
@@ -546,6 +544,62 @@ parse_config(char *fname)
 							}
 						}
 						else
+							error = 1;
+
+						tok = strtok(NULL, DELIM);
+						if (tok == NULL)
+							sort_type = RF_AVAIL;
+						else {
+							if (!strcmp(tok, "total"))
+								sort_type = RF_AVAIL;
+							else if (!strcmp(tok, "assigned"))
+								sort_type = RF_ASSN;
+							else if (!strcmp(tok, "unused"))
+								sort_type = RF_UNUSED;
+							else {
+								free(sort_res_name);
+								error = 1;
+							}
+						}
+
+						if (!error) {
+							conf.node_group_sort[ng_key_num].res_name = sort_res_name;
+							/* set the flag to indicate that we should dup the memory for sort_res_name
+								 * if we are going to use it again.
+								 */
+							conf.node_group_sort[ng_key_num].order = sort_ord;
+							conf.node_group_sort[ng_key_num].res_type = sort_type;
+							ng_key_num++;
+						}
+					}
+				} else if (!strcmp(config_name, PARSE_NODE_SORT_KEY)) {
+					if (((prime == PRIME || prime == ALL) && node_pkey_num > MAX_SORTS) ||
+					    ((prime == NON_PRIME || prime == ALL) && node_npkey_num > MAX_SORTS)) {
+						log_eventf(PBSEVENT_SCHED, PBS_EVENTCLASS_FILE, LOG_NOTICE, fname,
+							   "Too many %s node sorts.  %s sort ignored.  %d max sorts",
+							   prime_value, config_value, MAX_SORTS);
+					} else {
+						tok = strtok(config_value, DELIM);
+						sort_res_name = string_dup(tok);
+
+						if (sort_res_name != NULL) {
+							tok = strtok(NULL, DELIM);
+							if (tok != NULL) {
+								if (!strcmp(tok, "high") || !strcmp(tok, "HIGH") ||
+								    !strcmp(tok, "High")) {
+									sort_ord = DESC;
+								} else if (!strcmp(tok, "low") || !strcmp(tok, "LOW") ||
+									   !strcmp(tok, "Low")) {
+									sort_ord = ASC;
+								} else {
+									free(sort_res_name);
+									error = 1;
+								}
+							} else {
+								free(sort_res_name);
+								error = 1;
+							}
+						} else
 							error = 1;
 
 						tok = strtok(NULL, DELIM);
@@ -659,8 +713,7 @@ parse_config(char *fname)
 						error = 1;
 					}
 
-				}
-				else if (!strcmp(config_name, PARSE_SORT_NODES)) {
+				} else if (!strcmp(config_name, PARSE_SORT_NODES)) {
 					obsolete[0] = config_name;
 					obsolete[1] = PARSE_NODE_SORT_KEY;
 
@@ -674,8 +727,7 @@ parse_config(char *fname)
 						conf.non_prime_node_sort[node_npkey_num].order = DESC;
 						node_npkey_num++;
 					}
-				}
-				else if (!strcmp(config_name, PARSE_PEER_QUEUE)) {
+				} else if (!strcmp(config_name, PARSE_PEER_QUEUE)) {
 					tmp1 = tmp2 = tmp3 = NULL;
 					if (peer_num < NUM_PEERS) {
 						tok = strtok(config_value, DELIM);
@@ -725,8 +777,7 @@ parse_config(char *fname)
 						error = 1;
 						sprintf(errbuf, "Too many peer queues - max: %d", NUM_PEERS);
 					}
-				}
-				else if (!strcmp(config_name, PARSE_PREEMPT_ATTEMPTS))
+				} else if (!strcmp(config_name, PARSE_PREEMPT_ATTEMPTS))
 					conf.max_preempt_attempts = num;
 				else if (!strcmp(config_name, PARSE_MAX_JOB_CHECK)) {
 					if (!strcmp(config_value, "ALL_JOBS"))
@@ -882,6 +933,7 @@ init_config()
 	free_sort_info(NON_PRIME_SORT);
 	free_sort_info(PRIME_NODE_SORT);
 	free_sort_info(NON_PRIME_NODE_SORT);
+	free_sort_info(NODE_GROUP_SORT);
 
 	if (conf.fairshare_res != NULL) {
 		free(conf.fairshare_res);
@@ -934,6 +986,12 @@ init_config()
 	}
 	memset(conf.non_prime_node_sort, 0, (MAX_SORTS + 1) *
 		sizeof(struct sort_info));
+
+	if ((conf.node_group_sort = malloc((MAX_SORTS + 1) * sizeof(struct sort_info))) == NULL) {
+		log_err(errno, __func__, MEM_ERR_MSG);
+		return 0;
+	}
+	memset(conf.node_group_sort, 0, (MAX_SORTS + 1) * sizeof(struct sort_info));
 
 	/* for backwards compatibility */
 	conf.update_comments = 1;
@@ -1137,6 +1195,9 @@ free_sort_info(enum sort_info_type si_type)
 			break;
 		case NON_PRIME_NODE_SORT:
 			so_info = conf.non_prime_node_sort;
+			break;
+		case NODE_GROUP_SORT:
+			so_info = conf.node_group_sort;
 			break;
 		default:
 			return;

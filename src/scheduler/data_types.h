@@ -1196,6 +1196,7 @@ struct config
 	/* order to preempt jobs */
 	struct sort_info *prime_node_sort;	/* node sorting primetime */
 	struct sort_info *non_prime_node_sort;	/* node sorting non primetime */
+	struct sort_info *node_group_sort;	/* pset sort keys */
 	struct dyn_res dynamic_res[MAX_SERVER_DYN_RES]; /* for server_dyn_res */
 	struct peer_queue peer_queues[NUM_PEERS];/* peer local -> remote queue map */
 #ifdef NAS

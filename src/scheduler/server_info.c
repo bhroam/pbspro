@@ -1665,6 +1665,8 @@ update_server_on_run(status *policy, server_info *sinfo,
 			}
 		}
 
+		sort_all_nodepart(policy, sinfo);
+
 		/* We're running a job or reservation, which will affect the cached data.
 		 * We'll flush the cache and rebuild it if needed
 		 */

@@ -614,7 +614,8 @@ enum sort_info_type {
 	PRIME_SORT,
 	NON_PRIME_SORT,
 	PRIME_NODE_SORT,
-	NON_PRIME_NODE_SORT
+	NON_PRIME_NODE_SORT,
+	NODE_GROUP_SORT
 };
 
 enum runjob_mode {
