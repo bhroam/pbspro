@@ -271,6 +271,9 @@ init_server_attrs()
 
 	set_attr_generic(&(server.sv_attr[(int)SVR_ATR_scheduling]), &svr_attr_def[(int) SVR_ATR_scheduling], ATR_TRUE, NULL, SET);
 
+	set_attr_generic(&(server.sv_attr[SVR_ATR_JobHistoryEnable]), &svr_attr_def[(int) SVR_ATR_JobHistoryEnable], ATR_TRUE, NULL, SET);
+	set_job_history_enable(&(server.sv_attr[SVR_ATR_JobHistoryEnable]), &server, ATR_ACTION_RECOV);
+
 	prdef = &svr_resc_def[RESC_NCPUS];
 	if (prdef) {
 		presc = add_resource_entry(&server.sv_attr[(int)SVR_ATR_DefaultChunk], prdef);

@@ -43,8 +43,6 @@
 #include "data_types.h"
 #include <pbs_ifl.h>
 
-void query_node_info_chunk(th_data_query_ninfo *data);
-
 /*
  *      query_nodes - query all the nodes associated with a server
  */
@@ -54,7 +52,7 @@ node_info **query_nodes(int pbs_sd, server_info *sinfo);
  *      query_node_info - collect information from a batch_status and
  *                        put it in a node_info struct for easier access
  */
-node_info *query_node_info(struct batch_status *node, server_info *sinfo);
+node_info *query_node_info(struct batch_status *node, server_info *sinfo, node_info *ninfo);
 
 /*
  * pthread routine for freeing up a node_info array
@@ -127,11 +125,6 @@ void dup_node_info_chunk(th_data_dup_nd_info *data);
  *      dup_nodes - duplicate an array of nodes
  */
 node_info **dup_nodes(node_info **onodes, server_info *nsinfo, unsigned int flags);
-
-/*
- *      set_node_type - set the node type bits
- */
-int set_node_type(node_info *ninfo, char *ntype);
 
 /*
  *      collect_jobs_on_nodes - collect all the jobs in the job array on the

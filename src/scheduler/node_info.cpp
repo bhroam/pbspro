@@ -50,7 +50,6 @@
  * 	new_node_info()
  * 	free_nodes()
  * 	free_node_info()
- * 	set_node_type()
  * 	set_node_info_state()
  * 	remove_node_state()
  * 	add_node_state()
@@ -155,90 +154,8 @@
 #include "site_code.h"
 #endif
 
-
 /* name of the last node a job ran on - used in smp_dist = round robin */
 static char last_node_name[PBS_MAXSVRJOBID];
-
-void
-query_node_info_chunk(th_data_query_ninfo *data)
-{
-	struct batch_status *nodes;
-	struct batch_status *cur_node;
-	node_info **ninfo_arr;
-	server_info *sinfo;
-	node_info *ninfo;
-	int i;
-	int nidx;
-	int start;
-	int end;
-	int num_nodes_chunk;
-
-	nodes = data->nodes;
-	sinfo = data->sinfo;
-	start = data->sidx;
-	end = data->eidx;
-	num_nodes_chunk = end - start + 1;
-
-	if ((ninfo_arr = static_cast<node_info **>(malloc((num_nodes_chunk + 1) * sizeof(node_info *)))) == NULL) {
-		log_err(errno, __func__, MEM_ERR_MSG);
-		data->error = 1;
-		return;
-	}
-	ninfo_arr[0] = NULL;
-
-	/* Move to the linked list item corresponding to the 'start' index */
-	for (cur_node = nodes, i = 0; i < start && cur_node != NULL; cur_node = cur_node->next, i++)
-		;
-
-	for (i = start, nidx = 0; i <= end && cur_node != NULL; cur_node = cur_node->next, i++) {
-		/* get node info from the batch_status */
-		if ((ninfo = query_node_info(cur_node, sinfo)) == NULL) {
-			free_nodes(ninfo_arr);
-			data->error = 1;
-			return;
-		}
-
-		if (node_in_partition(ninfo, sc_attrs.partition)) {
-			ninfo_arr[nidx++] = ninfo;
-		} else
-			free_node_info(ninfo);
-	}
-	ninfo_arr[nidx] = NULL;
-
-	data->oarr = ninfo_arr;
-}
-
-/**
- * @brief	Allocates th_data_query_ninfo for multi-threading of query_nodes
- *
- * @param[in]	nodes	-	batch_status of nodes queried from server
- * @param[in]	sinfo	-	server information
- * @param[in]	sidx	-	start index for the jobs list for the thread
- * @param[in]	eidx	-	end index for the jobs list for the thread
- *
- * @return th_data_query_ninfo *
- * @retval a newly allocated th_data_query_ninfo object
- * @retval NULL for malloc error
- */
-static inline th_data_query_ninfo *
-alloc_tdata_nd_query(struct batch_status *nodes, server_info *sinfo, int sidx, int eidx)
-{
-	th_data_query_ninfo *tdata = NULL;
-
-	tdata = static_cast<th_data_query_ninfo *>(malloc(sizeof(th_data_query_ninfo)));
-	if (tdata == NULL) {
-		log_err(errno, __func__, MEM_ERR_MSG);
-		return NULL;
-	}
-	tdata->error = 0;
-	tdata->nodes = nodes;
-	tdata->oarr = NULL; /* Will be filled by the thread routine */
-	tdata->sinfo = sinfo;
-	tdata->sidx = sidx;
-	tdata->eidx = eidx;
-
-	return tdata;
-}
 
 /**
  * @brief
@@ -254,28 +171,22 @@ node_info **
 query_nodes(int pbs_sd, server_info *sinfo)
 {
 	struct batch_status *nodes;		/* nodes returned from the server */
+	static struct batch_status *prev_nodes;
+	struct batch_status *diff_nodes;
 	struct batch_status *cur_node;	/* used to cycle through nodes */
 	node_info **ninfo_arr;		/* array of nodes for scheduler's use */
 	char *err;				/* used with pbs_geterrmsg() */
 	int num_nodes = 0;			/* the number of nodes */
-	int i;
-	int j;
-	int nidx = 0;
+	int tot_nodes = 0;
+	node_info *ninfo;
+	int node_ind;
 	static struct attrl *attrib = NULL;
-	int chunk_size;
-	th_data_query_ninfo *tdata = NULL;
-	th_task_info *task = NULL;
-	int num_tasks;
-	int th_err = 0;
-	node_info ***ninfo_arrs_tasks = NULL;
-	int tid;
 	const char *nodeattrs[] = {
 			ATTR_NODE_state,
 			ATTR_NODE_Mom,
 			ATTR_NODE_Port,
 			ATTR_partition,
 			ATTR_NODE_jobs,
-			ATTR_NODE_ntype,
 			ATTR_maxrun,
 			ATTR_maxuserrun,
 			ATTR_maxgrprun,
@@ -301,6 +212,7 @@ query_nodes(int pbs_sd, server_info *sinfo)
 	};
 
 	if (attrib == NULL) {
+		int i;
 		for (i = 0; nodeattrs[i] != NULL; i++) {
 			struct attrl *temp_attrl = NULL;
 
@@ -319,114 +231,80 @@ query_nodes(int pbs_sd, server_info *sinfo)
 		return NULL;
 	}
 
-	cur_node = nodes;
-	while (cur_node != NULL) {
+	if (sinfo->nodes == NULL) {
+		pbs_statfree(prev_nodes);
+		prev_nodes = NULL;
+	}
+	if (prev_nodes != NULL)
+		diff_nodes = diff_batch_status_list(prev_nodes, nodes);
+	else
+		diff_nodes = nodes;
+
+	for (cur_node = diff_nodes; cur_node != NULL; cur_node = cur_node->next) {
 		num_nodes++;
-		cur_node = cur_node->next;
 	}
 
-	tid = *((int *) pthread_getspecific(th_id_key));
-	if (tid != 0 || num_threads <= 1) {
-		/* don't use multi-threading if I am a worker thread or num_threads is 1 */
-		tdata = alloc_tdata_nd_query(nodes, sinfo, 0, num_nodes - 1);
-		if (tdata == NULL) {
-			pbs_statfree(nodes);
-			return NULL;
-		}
-		query_node_info_chunk(tdata);
-		ninfo_arr = tdata->oarr;
-		free(tdata);
-
-		for (nidx = 0; ninfo_arr[nidx] != NULL; nidx++)
-			ninfo_arr[nidx]->rank = get_sched_rank();
-
-		ninfo_arr[nidx] = NULL;
-	} else {
-		if ((ninfo_arr = static_cast<node_info **>(malloc((num_nodes + 1) * sizeof(node_info *)))) == NULL) {
-			log_err(errno, __func__, MEM_ERR_MSG);
-			pbs_statfree(nodes);
-			return NULL;
-		}
-		ninfo_arr[0] = NULL;
-		chunk_size = num_nodes / num_threads;
-		chunk_size = (chunk_size > MT_CHUNK_SIZE_MIN) ? chunk_size : MT_CHUNK_SIZE_MIN;
-		for (j = 0, num_tasks = 0; num_nodes > 0;
-				j += chunk_size, num_tasks++, num_nodes -= chunk_size) {
-			tdata = alloc_tdata_nd_query(nodes, sinfo, j, j + chunk_size - 1);
-			if (tdata == NULL) {
-				th_err = 1;
-				break;
-			}
-			task = static_cast<th_task_info *>(malloc(sizeof(th_task_info)));
-			if (task == NULL) {
-				free(tdata);
-				log_err(errno, __func__, MEM_ERR_MSG);
-				th_err = 1;
-				break;
-			}
-			task->task_id = num_tasks;
-			task->task_type = TS_QUERY_ND_INFO;
-			task->thread_data = (void *) tdata;
-
-			queue_work_for_threads(task);
-		}
-		ninfo_arrs_tasks = static_cast<node_info ***>(malloc(num_tasks * sizeof(node_info **)));
-		if (ninfo_arrs_tasks == NULL) {
-			log_err(errno, __func__, MEM_ERR_MSG);
-			th_err = 1;
-		}
-		/* Get results from worker threads */
-		for (i = 0; i < num_tasks;) {
-			pthread_mutex_lock(&result_lock);
-			while (ds_queue_is_empty(result_queue))
-				pthread_cond_wait(&result_cond, &result_lock);
-			while (!ds_queue_is_empty(result_queue)) {
-				task = (th_task_info *) ds_dequeue(result_queue);
-				tdata = (th_data_query_ninfo *) task->thread_data;
-				if (tdata->error)
-					th_err = 1;
-				ninfo_arrs_tasks[task->task_id] = tdata->oarr;
-				free(tdata);
-				free(task);
-				i++;
-			}
-			pthread_mutex_unlock(&result_lock);
-		}
-		if (th_err) {
-			pbs_statfree(nodes);
-			free_nodes(ninfo_arr);
-			return NULL;
-		}
-		/* Assemble node info objects from various threads into the ninfo_arr */
-		for (i = 0; i < num_tasks; i++) {
-			if (ninfo_arrs_tasks[i] != NULL) {
-				node_info *ninfo;
-
-				for (j = 0; (ninfo = ninfo_arrs_tasks[i][j]) != NULL; j++) {
-					ninfo->rank = get_sched_rank();
-					ninfo_arr[nidx++] = ninfo;
-				}
-				free(ninfo_arrs_tasks[i]);
-			}
-		}
-		ninfo_arr[nidx] = NULL;
-		free(ninfo_arrs_tasks);
-	}
-
-	if (nidx == 0) {
-		log_event(PBSEVENT_SCHED, PBS_EVENTCLASS_SERVER, LOG_INFO, __func__,
-			"No nodes found in partitions serviced by scheduler");
+	/* allocate the largest possible array - if all stated nodes are nnode + current nodes */
+	if ((ninfo_arr = static_cast<node_info **>(realloc(sinfo->nodes, (sinfo->num_nodes + num_nodes + 1) * sizeof(node_info *)))) == NULL) {
+		log_err(errno, __func__, MEM_ERR_MSG);
 		pbs_statfree(nodes);
-		free(ninfo_arr);
+		pbs_statfree(prev_nodes);
+		if (diff_nodes != nodes)
+			pbs_statfree(diff_nodes);
+		prev_nodes = NULL;
 		return NULL;
+	}
+	sinfo->nodes = ninfo_arr;
+
+	tot_nodes = sinfo->num_nodes;
+	ninfo_arr[tot_nodes] = NULL;
+
+	for (cur_node = diff_nodes; cur_node != NULL; cur_node = cur_node->next) {
+		ninfo = NULL;
+		for (node_ind = 0; ninfo_arr[node_ind] != NULL && strcmp(ninfo_arr[node_ind]->name, cur_node->name) != 0; node_ind++)
+			;
+
+		if (cur_node->attribs != NULL) {
+			/* get node info from the batch_status */
+			if ((ninfo = query_node_info(cur_node, sinfo, ninfo_arr[node_ind])) == NULL) {
+				pbs_statfree(nodes);
+				if (diff_nodes != nodes)
+					pbs_statfree(diff_nodes);
+				return NULL;
+			}
+			ninfo->num_jobs = 0;
+			ninfo->num_run_resv = 0;
+		} else
+			ninfo = ninfo_arr[node_ind];
+
+		if (node_ind == tot_nodes && cur_node->attribs != NULL && node_in_partition(ninfo, sc_attrs.partition)) {
+			ninfo_arr[tot_nodes++] = ninfo;
+			ninfo_arr[tot_nodes] = NULL;
+		} else if (cur_node->attribs == NULL) {
+			/* Node got deleted or moved out of our partition */
+			if (node_ind != tot_nodes) {
+				int k;
+				for(k = node_ind; k < tot_nodes; k++)
+					ninfo_arr[k] = ninfo_arr[k + 1];
+
+				tot_nodes--;
+			}
+
+			free_node_info(ninfo);
+		}
 	}
 
 #ifdef NAS /* localmod 062 */
 	site_vnode_inherit(ninfo_arr);
 #endif /* localmod 062 */
 	resolve_indirect_resources(ninfo_arr);
-	sinfo->num_nodes = nidx;
-	pbs_statfree(nodes);
+	sinfo->num_nodes = tot_nodes;
+
+	if (diff_nodes != nodes)
+		pbs_statfree(diff_nodes);
+	pbs_statfree(prev_nodes);
+	prev_nodes = nodes;
+	// pbs_statfree(nodes);
 	return ninfo_arr;
 }
 
@@ -442,9 +320,8 @@ query_nodes(int pbs_sd, server_info *sinfo)
  *
  */
 node_info *
-query_node_info(struct batch_status *node, server_info *sinfo)
+query_node_info(struct batch_status *node, server_info *sinfo, node_info *ninfo)
 {
-	node_info *ninfo;		/* the new node_info */
 	struct attrl *attrp;		/* used to cycle though attribute list */
 	schd_resource *res;		/* used to set resources in res list */
 	sch_resource_t count;		/* used to convert str->num */
@@ -452,20 +329,31 @@ query_node_info(struct batch_status *node, server_info *sinfo)
 	int check_expiry = 0;
 	time_t expiry = 0;
 
-	if ((ninfo = new_node_info()) == NULL)
-		return NULL;
 
-	attrp = node->attribs;
+	if (ninfo == NULL) { 
+		if ((ninfo = new_node_info()) == NULL)
+			return NULL;
 
-	if ((ninfo->name = string_dup(node->name)) == NULL) {
-		free_node_info(ninfo);
-		return NULL;
+		if ((ninfo->name = string_dup(node->name)) == NULL) {
+			free_node_info(ninfo);
+			return NULL;
+		}
+
+		ninfo->rank = get_sched_rank();
+
+		ninfo->server = sinfo;
 	}
 
-	ninfo->server = sinfo;
-
-	while (attrp != NULL) {
-		/* Node State... i.e. offline down free etc */
+	attrp = node->attribs;
+	for (attrp = node->attribs; attrp != NULL; attrp = attrp->next) {
+		if (attrp->value != NULL) {
+			count = strtol(attrp->value, &endp, 10);
+			if (*endp != '\0')
+				count = -1;
+		} else {
+			count = 0;
+			endp = NULL;
+		}
 		if (!strcmp(attrp->name, ATTR_NODE_state))
 			set_node_info_state(ninfo, attrp->value);
 
@@ -479,7 +367,7 @@ query_node_info(struct batch_status *node, server_info *sinfo)
 
 		/* Host name */
 		else if (!strcmp(attrp->name, ATTR_NODE_Mom)) {
-			if (ninfo->mom)
+			if (ninfo->mom != NULL)
 				free(ninfo->mom);
 			if ((ninfo->mom = string_dup(attrp->value)) == NULL) {
 				free_node_info(ninfo);
@@ -487,18 +375,18 @@ query_node_info(struct batch_status *node, server_info *sinfo)
 			}
 		}
 		else if(!strcmp(attrp->name, ATTR_partition)) {
+			if (ninfo->partition != NULL)
+				free(ninfo->partition);
 			ninfo->partition = string_dup(attrp->value);
 			if (ninfo->partition == NULL) {
 				log_err(errno, __func__, MEM_ERR_MSG);
 				return NULL;
 			}
-		}
-		else if (!strcmp(attrp->name, ATTR_NODE_jobs))
+		} else if (!strcmp(attrp->name, ATTR_NODE_jobs)) {
+			if (ninfo->jobs != NULL)
+				free_string_array(ninfo->jobs);
 			ninfo->jobs = break_comma_list(attrp->value);
-
-		/* the node type... i.e. a pbs node  */
-		else if (!strcmp(attrp->name, ATTR_NODE_ntype))
-			set_node_type(ninfo, attrp->value);
+		}
 		else if (!strcmp(attrp->name, ATTR_maxrun)) {
 			count = strtol(attrp->value, &endp, 10);
 			if (*endp == '\0')
@@ -511,32 +399,24 @@ query_node_info(struct batch_status *node, server_info *sinfo)
 			ninfo->has_hard_limit = 1;
 		}
 		else if (!strcmp(attrp->name, ATTR_maxgrprun)) {
-			count = strtol(attrp->value, &endp, 10);
-			if (*endp == '\0')
-				ninfo->max_group_run = count;
+			ninfo->max_group_run = count;
 			ninfo->has_hard_limit = 1;
-		}
-		else if (!strcmp(attrp->name, ATTR_queue))
+		} else if (!strcmp(attrp->name, ATTR_queue)) {
+			if (ninfo->queue_name != NULL)
+				free(ninfo->queue_name);
 			ninfo->queue_name = string_dup(attrp->value);
-		else if (!strcmp(attrp->name, ATTR_NODE_pcpus)) {
-			count = strtol(attrp->value, &endp, 10);
-			if (*endp == '\0')
-				ninfo->pcpus = count;
-		}
-		else if (!strcmp(attrp->name, ATTR_p)) {
-			count = strtol(attrp->value, &endp, 10);
-			if (*endp == '\0')
-				ninfo->priority = count;
-		}
-		else if (!strcmp(attrp->name, ATTR_NODE_Sharing)) {
+		} else if (!strcmp(attrp->name, ATTR_NODE_pcpus)) {
+			ninfo->pcpus = count;
+		} else if (!strcmp(attrp->name, ATTR_p)) {
+			ninfo->priority = count;
+		} else if (!strcmp(attrp->name, ATTR_NODE_Sharing)) {
 			ninfo->sharing = str_to_vnode_sharing(attrp->value);
 			if (ninfo->sharing == VNS_UNSET) {
 				log_eventf(PBSEVENT_SCHED, PBS_EVENTCLASS_NODE, LOG_INFO, ninfo->name,
 					"Unknown sharing type: %s using default shared", attrp->value);
 				ninfo->sharing = VNS_DFLT_SHARED;
 			}
-		}
-		else if (!strcmp(attrp->name, ATTR_NODE_License)) {
+		} else if (!strcmp(attrp->name, ATTR_NODE_License)) {
 			switch (attrp->value[0]) {
 				case ND_LIC_TYPE_locked:
 					ninfo->lic_lock = 1;
@@ -551,7 +431,7 @@ query_node_info(struct batch_status *node, server_info *sinfo)
 			}
 		} else if (!strcmp(attrp->name, ATTR_rescavail)) {
 			if (!strcmp(attrp->resource, ND_RESC_LicSignature)) {
-				expiry = strtol(attrp->value, &endp, 10);
+				expiry = count;
 			}
 			res = find_alloc_resource_by_str(ninfo->res, attrp->resource);
 
@@ -587,48 +467,36 @@ query_node_info(struct batch_status *node, server_info *sinfo)
 		} else if (!strcmp(attrp->name, ATTR_NODE_NoMultiNode)) {
 			if (!strcmp(attrp->value, ATR_TRUE))
 				ninfo->no_multinode_jobs = 1;
-		}
-		else if (!strcmp(attrp->name, ATTR_ResvEnable)) {
+		} else if (!strcmp(attrp->name, ATTR_ResvEnable)) {
 			if (!strcmp(attrp->value, ATR_TRUE))
 				ninfo->resv_enable = 1;
-		}
-		else if (!strcmp(attrp->name, ATTR_NODE_ProvisionEnable)) {
+		} else if (!strcmp(attrp->name, ATTR_NODE_ProvisionEnable)) {
 			if (!strcmp(attrp->value, ATR_TRUE))
 				ninfo->provision_enable = 1;
-		}
-		else if (!strcmp(attrp->name, ATTR_NODE_current_aoe)) {
+		} else if (!strcmp(attrp->name, ATTR_NODE_current_aoe)) {
 			if (attrp->value != NULL)
 				set_current_aoe(ninfo, attrp->value);
-		}
-		else if (!strcmp(attrp->name, ATTR_NODE_power_provisioning)) {
+		} else if (!strcmp(attrp->name, ATTR_NODE_power_provisioning)) {
 			if (!strcmp(attrp->value, ATR_TRUE))
 				ninfo->power_provisioning = 1;
-		}
-		else if (!strcmp(attrp->name, ATTR_NODE_current_eoe)) {
+		} else if (!strcmp(attrp->name, ATTR_NODE_current_eoe)) {
 			if (attrp->value != NULL)
 				set_current_eoe(ninfo, attrp->value);
-		}
-		else if (!strcmp(attrp->name, ATTR_NODE_in_multivnode_host)) {
+		} else if (!strcmp(attrp->name, ATTR_NODE_in_multivnode_host)) {
 			if (attrp->value != NULL) {
-				count = strtol(attrp->value, &endp, 10);
-				if (*endp == '\0')
-					ninfo->is_multivnoded = count;
+				ninfo->is_multivnoded = count;
 				if ((!sinfo->has_multi_vnode) && (count != 0))
 					sinfo->has_multi_vnode = 1;
 			}
-		} else if  (!strcmp(attrp->name, ATTR_NODE_last_state_change_time)) {
-			count = strtol(attrp->value, &endp, 10);
-			if (*endp == '\0')
-				ninfo->last_state_change_time = count;
-		} else if  (!strcmp(attrp->name, ATTR_NODE_last_used_time)) {
-			count = strtol(attrp->value, &endp, 10);
-			if (*endp == '\0')
-				ninfo->last_used_time = count;
+		} else if (!strcmp(attrp->name, ATTR_NODE_last_state_change_time)) {
+			ninfo->last_state_change_time = count;
+		} else if (!strcmp(attrp->name, ATTR_NODE_last_used_time)) {
+			ninfo->last_used_time = count;
 		} else if (!strcmp(attrp->name, ATTR_NODE_resvs)) {
 			ninfo->resvs = break_comma_list(attrp->value);
 		}
-		attrp = attrp->next;
 	}
+
 	if (check_expiry) {
 		if (time(NULL) < expiry) {
 			ninfo->lic_lock = 1;
@@ -640,9 +508,9 @@ query_node_info(struct batch_status *node, server_info *sinfo)
 
 /**
  * @brief
- *      new_node_info - allocates a new node_info
+ *	new_node_info - allocates a nnode node_info
  *
- * @return	the new node_info
+ * @return	the nnode node_info
  *
  */
 node_info *
@@ -934,32 +802,6 @@ free_node_info(node_info *ninfo)
 
 /**
  * @brief
- *		set_node_type - set the node type bits
- *
- * @param[in,out]	ninfo	-	the node to set the type
- * @param[in]	ntype	-	the type string from the server
- *
- * @return	non-zero	: on error
- *
- */
-int
-set_node_type(node_info *ninfo, char *ntype)
-{
-	if (ntype != NULL && ninfo != NULL) {
-		if (!strcmp(ntype, ND_pbs))
-			ninfo->is_pbsnode = 1;
-		else {
-			log_eventf(PBSEVENT_SCHED, PBS_EVENTCLASS_NODE, LOG_INFO,
-				ninfo->name, "Unknown node type: %s", ntype);
-			return 1;
-		}
-		return 0;
-	}
-	return 1;
-}
-
-/**
- * @brief
  * 		set the node state info bits from a single or comma separated list of
  * 		states.
  *
@@ -1146,7 +988,7 @@ add_node_state(node_info *ninfo, const char *state)
 
 /**
  * @brief
- *		node_filter - filter a node array and return a new filterd array
+ *		node_filter - filter a node array and return a nnode filterd array
  *
  * @param[in]	nodes	-	the array to filter
  * @param[in]	size	-	size of nodes (<0 for function to figure it out)
@@ -1166,7 +1008,7 @@ node_info **
 node_filter(node_info **nodes, int size,
 	int (*filter_func)(node_info*, void*), void *arg, int flags)
 {
-	node_info **new_nodes = NULL;			/* the new node array */
+	node_info **new_nodes = NULL;			/* the nnode node array */
 	node_info **new_nodes_tmp = NULL;
 	int i, j;
 
@@ -1292,7 +1134,7 @@ dup_node_info_chunk(th_data_dup_nd_info *data)
  * @brief	Allocates th_data_dup_nd_info for multi-threading of dup_nodes
  *
  * @param[in]	flags	-	flags passed to dup_nodes
- * @param[in]	nsinfo	-	the new server
+ * @param[in]	nsinfo	-	the nnode server
  * @param[in]	onodes	-	the array to duplicate
  * @param[out]	nnodes	-	the duplicated array
  * @param[in]	sidx	-	start index for the nodes list for the thread
@@ -1328,7 +1170,7 @@ alloc_tdata_dup_nodes(unsigned int flags, server_info *nsinfo, node_info **onode
  *		dup_nodes - duplicate an array of nodes
  *
  * @param[in]	onodes	-	the array to duplicate
- * @param[in]	nsinfo	-	the new server
+ * @param[in]	nsinfo	-	the nnode server
  * @param[in]	flags	-	DUP_INDIRECT - duplicate
  * 				 			target resources, not indirect
  *
@@ -1483,8 +1325,8 @@ dup_nodes(node_info **onodes, server_info *nsinfo, unsigned int flags)
 
 /**
  * @brief
- *		dup_node_info - duplicate a node by creating a new one and coping all
- *		        the data into the new
+ *		dup_node_info - duplicate a node by creating a nnode one and coping all
+ *		        the data into the nnode
  *
  * @param[in]	onode	-	the node to dup
  * @param[in]	nsinfo	-	the NEW server (i.e. duplicated)
@@ -1520,7 +1362,6 @@ dup_node_info(node_info *onode, server_info *nsinfo,
 	nnode->is_resv_exclusive = onode->is_resv_exclusive;
 	nnode->is_sharing = onode->is_sharing;
 	nnode->is_busy = onode->is_busy;
-	nnode->is_pbsnode = onode->is_pbsnode;
 	nnode->is_job_busy = onode->is_job_busy;
 	nnode->is_stale = onode->is_stale;
 	nnode->is_maintenance = onode->is_maintenance;
@@ -1570,20 +1411,7 @@ dup_node_info(node_info *onode, server_info *nsinfo,
 	if (onode->svr_node != NULL)
 		nnode->svr_node = find_node_by_indrank(nsinfo->nodes, onode->node_ind, onode->rank);
 
-	/* Duplicate list of jobs and running reservations.
-	 * If caller is dup_server_info() then nsinfo->resvs/jobs should be NULL,
-	 * but running reservations and jobs are collected later in the caller.
-	 * Otherwise, we collect running reservations or jobs here.
-	 */
-	nnode->run_resvs_arr = copy_resresv_array(onode->run_resvs_arr, nsinfo->resvs);
 	nnode->job_arr = copy_resresv_array(onode->job_arr, nsinfo->jobs);
-
-	/* If we are called from dup_server(), nsinfo->hostsets are NULL.
-	 * They are not created yet.  Hostsets will be attached in dup_server()
-	 */
-	if (onode->hostset != NULL)
-		nnode->hostset = find_node_partition_by_rank(nsinfo->hostsets,
-			onode->hostset->rank);
 
 	nnode->bucket_ind = onode->bucket_ind;
 	nnode->node_ind = onode->node_ind;
@@ -1610,7 +1438,7 @@ dup_node_info(node_info *onode, server_info *nsinfo,
  *
  *
  * @param[in]	oarr	-	the old array (filtered array)
- * @param[in]	narr	-	the new array (entire node array)
+ * @param[in]	narr	-	the nnode array (entire node array)
  *
  * @return	copied array
  * @retval	NULL	: on error
@@ -1678,8 +1506,7 @@ collect_resvs_on_nodes(node_info **ninfo_arr, resource_resv **resresv_arr, int s
 
 /**
  * @brief
- *		collect_jobs_on_nodes - collect all the jobs in the job array on the
- *				nodes
+ *		collect_jobs_on_nodes - collect all the jobs in the job array on the nodes
  *
  * @param[in]	ninfo	-	the nodes to collect for
  * @param[in]	resresv_arr	-	the array of jobs to consider
@@ -1706,7 +1533,10 @@ collect_jobs_on_nodes(node_info **ninfo_arr, resource_resv **resresv_arr, int si
 		return 0;
 
 	for (i = 0; ninfo_arr[i] != NULL; i++) {
-		if ((ninfo_arr[i]->job_arr = static_cast<resource_resv **>(malloc((size + 1) * sizeof(resource_resv *)))) == NULL)
+		if (ninfo_arr[i]->job_arr != NULL)
+			free(ninfo_arr[i]->job_arr);
+
+		if ((ninfo_arr[i]->job_arr = static_cast<resource_resv **> (malloc((size + 1) * sizeof(resource_resv *)))) == NULL)
 		{
 			log_err(errno, __func__, MEM_ERR_MSG);
 			return 0;
@@ -1715,6 +1545,7 @@ collect_jobs_on_nodes(node_info **ninfo_arr, resource_resv **resresv_arr, int si
 	}
 
 	for (i = 0; ninfo_arr[i] != NULL; i++) {
+		ninfo_arr[i]->num_jobs = 0;
 		if (ninfo_arr[i]->jobs != NULL) {
 			/* If there are no running jobs in the list and node reports a running job,
 			 * mark that the node has ghost job
@@ -1740,22 +1571,20 @@ collect_jobs_on_nodes(node_info **ninfo_arr, resource_resv **resresv_arr, int si
 					 * it'll show up more then once.  If this is the case, we only
 					 * want to have the job in our array once.
 					 */
-					if (find_resource_resv_by_indrank(ninfo_arr[i]->job_arr,
-						-1, job->rank) == NULL) {
+					if (find_resource_resv_by_indrank(ninfo_arr[i]->job_arr, -1, job->rank) == NULL) {
 						if (ninfo_arr[i]->has_hard_limit) {
-						cts = find_alloc_counts(ninfo_arr[i]->group_counts,
-							job->group);
-						if (ninfo_arr[i]->group_counts == NULL)
-							ninfo_arr[i]->group_counts = cts;
+							cts = find_alloc_counts(ninfo_arr[i]->group_counts, job->group);
+							if (ninfo_arr[i]->group_counts == NULL)
+								ninfo_arr[i]->group_counts = cts;
 
-						update_counts_on_run(cts, job->resreq);
+							update_counts_on_run(cts, job->resreq);
 
-						cts = find_alloc_counts(ninfo_arr[i]->user_counts,
-							job->user);
-						if (ninfo_arr[i]->user_counts == NULL)
-							ninfo_arr[i]->user_counts = cts;
+							cts = find_alloc_counts(ninfo_arr[i]->user_counts,
+										job->user);
+							if (ninfo_arr[i]->user_counts == NULL)
+								ninfo_arr[i]->user_counts = cts;
 
-						update_counts_on_run(cts, job->resreq);
+							update_counts_on_run(cts, job->resreq);
 						}
 
 						ninfo_arr[i]->job_arr[k] = job;
@@ -1800,8 +1629,8 @@ collect_jobs_on_nodes(node_info **ninfo_arr, resource_resv **resresv_arr, int si
 	for (i = 0; susp_jobs[i] != NULL; i++) {
 		if (susp_jobs[i]->ninfo_arr != NULL) {
 			for (j = 0; susp_jobs[i]->ninfo_arr[j] != NULL; j++) {
-				/* resresv->ninfo_arr is merely a new list with pointers to server nodes.
-				 * resresv->resv->resv_nodes is a new list with pointers to resv nodes
+				/* resresv->ninfo_arr is merely a nnode list with pointers to server nodes.
+				 * resresv->resv->resv_nodes is a nnode list with pointers to resv nodes
 				 */
 				node = find_node_info(ninfo_arr,
 						susp_jobs[i]->ninfo_arr[j]->name);
@@ -1914,43 +1743,41 @@ update_node_on_run(nspec *ns, resource_resv *resresv, const char *job_state)
 		update_counts_on_run(cts, ns->resreq);
 	}
 
-	if (ninfo->is_pbsnode) {
-		/* if we're a cluster node and we have no cpus available, we're job_busy */
-		if (ncpusres == NULL)
-			ncpusres = find_resource(ninfo->res, getallres(RES_NCPUS));
+	/* if we're a cluster node and we have no cpus available, we're job_busy */
+	if (ncpusres == NULL)
+		ncpusres = find_resource(ninfo->res, getallres(RES_NCPUS));
 
-		if (ncpusres != NULL) {
-			if (dynamic_avail(ncpusres) == 0)
-				set_node_info_state(ninfo, ND_jobbusy);
+	if (ncpusres != NULL) {
+		if (dynamic_avail(ncpusres) == 0)
+			set_node_info_state(ninfo, ND_jobbusy);
+	}
+
+	/* if node selected for provisioning, this node is no longer available */
+	if (ns->go_provision == 1) {
+		set_node_info_state(ninfo, ND_prov);
+
+		/* for jobs inside reservation, update the server's node info as well */
+		if (resresv->job != NULL && resresv->job->resv != NULL &&
+			ninfo->svr_node != NULL) {
+			set_node_info_state(ninfo->svr_node, ND_prov);
 		}
 
-		/* if node selected for provisioning, this node is no longer available */
-		if (ns->go_provision == 1) {
-			set_node_info_state(ninfo, ND_prov);
 
-			/* for jobs inside reservation, update the server's node info as well */
-			if (resresv->job != NULL && resresv->job->resv != NULL &&
-				ninfo->svr_node != NULL) {
-				set_node_info_state(ninfo->svr_node, ND_prov);
-			}
+		set_current_aoe(ninfo, resresv->aoename);
+	}
 
+	/* if job has eoe setting this node gets current_eoe set */
+	if (resresv->is_job && resresv->eoename != NULL)
+		set_current_eoe(ninfo, resresv->eoename);
 
-			set_current_aoe(ninfo, resresv->aoename);
+	if (is_excl(resresv->place_spec, ninfo->sharing)) {
+		if (resresv->is_resv) {
+			add_node_state(ninfo, ND_resv_exclusive);
 		}
-
-		/* if job has eoe setting this node gets current_eoe set */
-		if (resresv->is_job && resresv->eoename != NULL)
-			set_current_eoe(ninfo, resresv->eoename);
-
-		if (is_excl(resresv->place_spec, ninfo->sharing)) {
-			if (resresv->is_resv) {
-				add_node_state(ninfo, ND_resv_exclusive);
-			}
-			else {
-				add_node_state(ninfo, ND_job_exclusive);
-				if (ninfo->svr_node != NULL)
-					add_node_state(ninfo->svr_node, ND_job_exclusive);
-			}
+		else {
+			add_node_state(ninfo, ND_job_exclusive);
+			if (ninfo->svr_node != NULL)
+				add_node_state(ninfo->svr_node, ND_job_exclusive);
 		}
 	}
 
@@ -2095,7 +1922,7 @@ update_node_on_end(node_info *ninfo, resource_resv *resresv, const char *job_sta
 
 /**
  * @brief
- * 		new_nspec - allocate a new nspec
+ * 		new_nspec - allocate a nnode nspec
  *
  * @return	newly allocated and initialized nspec
  *
@@ -2113,6 +1940,7 @@ new_nspec()
 	ns->end_of_chunk = 0;
 	ns->seq_num = 0;
 	ns->sub_seq_num = 0;
+	ns->rank = 0;
 	ns->go_provision = 0;
 	ns->ninfo = NULL;
 	ns->resreq = NULL;
@@ -2147,7 +1975,7 @@ free_nspec(nspec *ns)
  * 		dup_nspec - duplicate an nspec
  *
  * @param[in]	ons	-	the nspec to duplicate
- * @param[in]	nsinfo	-	the new server info
+ * @param[in]	nsinfo	-	the nnode server info
  * @param[in]	sel	-	select spec to map nspec to
  *
  * @return	newly duplicated nspec
@@ -2169,8 +1997,9 @@ dup_nspec(nspec *ons, node_info **ninfo_arr, selspec *sel)
 	nns->end_of_chunk = ons->end_of_chunk;
 	nns->seq_num = ons->seq_num;
 	nns->sub_seq_num = ons->sub_seq_num;
+	nns->rank = ons->rank;
 	nns->go_provision = ons->go_provision;
-	nns->ninfo = find_node_by_indrank(ninfo_arr, ons->ninfo->node_ind, ons->ninfo->rank);
+	nns->ninfo = find_node_by_indrank(ninfo_arr, ons->ninfo->node_ind, ons->rank);
 	nns->resreq = dup_resource_req_list(ons->resreq);
 	if (sel != NULL)
 		nns->chk = find_chunk_by_seq_num(sel->chunks, ons->seq_num);
@@ -2301,8 +2130,7 @@ find_nspec_by_rank(nspec **nspec_arr, int rank)
 	if (nspec_arr == NULL)
 		return NULL;
 
-	for (i = 0; nspec_arr[i] != NULL &&
-		nspec_arr[i]->ninfo->rank != rank; i++)
+	for (i = 0; nspec_arr[i] != NULL && nspec_arr[i]->rank != rank; i++)
 		;
 
 	return nspec_arr[i];
@@ -2693,7 +2521,7 @@ eval_placement(status *policy, selspec *spec, node_info **ninfo_arr, place *pl,
 
 								for (; *nsa != NULL; nsa++) {
 									node_info *vn;
-									vn = find_node_by_rank(dninfo_arr, (*nsa)->ninfo->rank);
+									vn = find_node_by_rank(dninfo_arr, (*nsa)->rank);
 									if (vn != NULL)
 										vn->nscr |= NSCR_SCATTERED;
 								}
@@ -3099,7 +2927,7 @@ eval_simple_selspec(status *policy, chunk *chk, node_info **pninfo_arr,
 	resource_req	*req = NULL;		/* used to determine if we're done */
 	resource_req	*prevreq = NULL;	/* used to determine if we're done */
 	resource_req	*tmpreq = NULL;		/* used to unlink and free */
-	int		need_new_nspec = 1;	/* need to allocate a new nspec for node solution */
+	int		need_new_nspec = 1;	/* need to allocate a nnode nspec for node solution */
 
 	int		allocated = 0;		/* did we allocate resources to a vnode */
 	int		nspecs_allocated = 0;	/* number of nodes allocated */
@@ -3267,7 +3095,7 @@ eval_simple_selspec(status *policy, chunk *chk, node_info **pninfo_arr,
 						/* Replace the dup'd node with the real one, but only if we dup'd the nodes */
 						if (ns != NULL && pninfo_arr != ninfo_arr) {
 								/* Need to call find_node_by_rank() over indrank since eval_placement might dup the nodes */
-								ns->ninfo = find_node_by_rank(pninfo_arr, ns->ninfo->rank);
+								ns->ninfo = find_node_by_rank(pninfo_arr, ns->rank);
 						}
 					} else {
 						chunks_found = 1;
@@ -3276,8 +3104,7 @@ eval_simple_selspec(status *policy, chunk *chk, node_info **pninfo_arr,
 						ns->end_of_chunk = 1;
 
 					}
-				}
-				else {
+				} else {
 					ninfo_arr[i]->nscr |= NSCR_VISITED;
 					if (failerr->status_code == SCHD_UNKWN)
 						copy_schd_error(failerr, err);
@@ -3689,8 +3516,10 @@ resources_avail_on_vnode(resource_req *specreq_cons, node_info *node,
 
 						newreq->amount = amount;
 
-						if (ns->ninfo == NULL) /* check if this is the first res */
+						if (ns->ninfo == NULL) { /* check if this is the first res */
 							ns->ninfo = node;
+							ns->rank = node->rank;
+						}
 
 						newreq->next = ns->resreq;
 						ns->resreq = newreq;
@@ -3732,8 +3561,7 @@ resources_avail_on_vnode(resource_req *specreq_cons, node_info *node,
 				pbs_strncpy(last_node_name, node->name, sizeof(last_node_name));
 			return 1;
 		}
-	}
-	else {
+	} else {
 		num_chunks = check_resources_for_node(specreq_cons, node, resresv, err);
 		if (num_chunks > 0) {
 			is_p = is_provisionable(node, resresv, err);
@@ -3764,6 +3592,7 @@ resources_avail_on_vnode(resource_req *specreq_cons, node_info *node,
 
 		if (ns != NULL && num_chunks != 0) {
 			ns->ninfo = node;
+			ns->rank = node->rank;
 			ns->resreq = dup_resource_req_list(specreq_cons);
 
 			if (ns->go_provision != 0) {
@@ -3998,7 +3827,7 @@ compare_place(place *pl1, place *pl2)
 
 /**
  * @brief
- *		parse_placespec - allocate a new place structure and parse
+ *		parse_placespec - allocate a nnode place structure and parse
  *		a placement spec (-l place)
  *
  * @param[in]	place_str	-	placespec as a string
@@ -4468,6 +4297,7 @@ parse_execvnode(char *execvnode, server_info *sinfo, selspec *sel)
 			ninfo = find_node_info(sinfo->nodes, node_name);
 			if (ninfo != NULL) {
 				nspec_arr[i]->ninfo = ninfo;
+				nspec_arr[i]->rank = ninfo->rank;
 				for (j = 0; j < num_el; j++) {
 					req = create_resource_req(kv[j].kv_keyw, kv[j].kv_val);
 					if (req != NULL) {
@@ -4687,7 +4517,7 @@ combine_nspec_array(nspec **nspec_arr)
  *
  * @param[in]	nspec_arr	-	source nspec array
  *
- * @return	new node_info array
+ * @return	nnode node_info array
  * @retval	NULL	: on error
  *
  */
@@ -5968,6 +5798,5 @@ int add_node_events(timed_event *te, void *arg1, void *arg2) {
 		if (add_event_to_nodes(te, nspecs) == 0)
 			return -1;
 	}
-
 	return 0;
 }

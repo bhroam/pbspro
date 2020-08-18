@@ -125,6 +125,7 @@ schedinit(int nthreads)
 	PyObject *module;
 	PyObject *obj;
 	PyObject *dict;
+	static int python_initialized = 0;
 #endif
 
 	init_config();
@@ -170,34 +171,37 @@ schedinit(int nthreads)
 	set_ical_zoneinfo(zone_dir);
 
 #ifdef PYTHON
-	Py_NoSiteFlag = 1;
-	Py_FrozenFlag = 1;
-	Py_IgnoreEnvironmentFlag = 1;
+	if (!python_initialized) {
+		Py_NoSiteFlag = 1;
+		Py_FrozenFlag = 1;
+		Py_IgnoreEnvironmentFlag = 1;
 
-	set_py_progname();
-	Py_InitializeEx(0);
+		set_py_progname();
+		Py_InitializeEx(0);
 
-	PyRun_SimpleString(
-		"_err =\"\"\n"
-		"ex = None\n"
-		"try:\n"
+		PyRun_SimpleString(
+			"_err =\"\"\n"
+			"ex = None\n"
+			"try:\n"
 			"\tfrom math import *\n"
-		"except ImportError as ex:\n"
+			"except ImportError as ex:\n"
 			"\t_err = str(ex)");
 
-	module = PyImport_AddModule("__main__");
-	dict = PyModule_GetDict(module);
+		module = PyImport_AddModule("__main__");
+		dict = PyModule_GetDict(module);
 
-	errstr = NULL;
-	obj = PyMapping_GetItemString(dict, "_err");
-	if (obj != NULL) {
-		errstr = PyUnicode_AsUTF8(obj);
-		if (errstr != NULL) {
-			if (strlen(errstr) > 0)
-				log_eventf(PBSEVENT_SCHED, PBS_EVENTCLASS_SCHED, LOG_WARNING,
-					   "PythonError", " %s. Python is unlikely to work properly.", errstr);
+		errstr = NULL;
+		obj = PyMapping_GetItemString(dict, "_err");
+		if (obj != NULL) {
+			errstr = PyUnicode_AsUTF8(obj);
+			if (errstr != NULL) {
+				if (strlen(errstr) > 0)
+					log_eventf(PBSEVENT_SCHED, PBS_EVENTCLASS_SCHED, LOG_WARNING,
+						   "PythonError", " %s. Python is unlikely to work properly.", errstr);
+			}
+			Py_XDECREF(obj);
 		}
-		Py_XDECREF(obj);
+		python_initialized = 1;
 	}
 
 #endif
@@ -363,11 +367,13 @@ init_scheduling_cycle(status *policy, int pbs_sd, server_info *sinfo)
 
 						if (sinfo->running_jobs[j] != NULL &&
 							sinfo->running_jobs[j]->job != NULL) {
+							long now, then;
 							/* just in case the delta is negative just add 0 */
-							delta = formula_evaluate(conf.fairshare_res, sinfo->running_jobs[j], sinfo->running_jobs[j]->job->resused) -
-								formula_evaluate(conf.fairshare_res, sinfo->running_jobs[j], last_running[i].resused);
-
-							delta = IF_NEG_THEN_ZERO(delta);
+							now = formula_evaluate(conf.fairshare_res, sinfo->running_jobs[j], sinfo->running_jobs[j]->job->resused);
+							then = formula_evaluate(conf.fairshare_res, sinfo->running_jobs[j], last_running[i].resused);
+							delta = IF_NEG_THEN_ZERO(now - then);
+							log_eventf(PBSEVENT_DEBUG, PBS_EVENTCLASS_JOB, LOG_DEBUG, sinfo->running_jobs[j]->name, "now: %ld then: %ld delta: %lf", now, then, delta);
+							log_eventf(PBSEVENT_DEBUG, PBS_EVENTCLASS_JOB, LOG_DEBUG, sinfo->running_jobs[j]->name, "entity: %s", user->name);
 
 							gpath = user->gpath;
 							while (gpath != NULL) {
@@ -519,6 +525,7 @@ schedule(int sd, const sched_cmd *cmd)
 		case SCH_SCHEDULE_AJOB:
 			return intermediate_schedule(sd, cmd);
 		case SCH_CONFIGURE:
+			got_configure = 1;
 			log_event(PBSEVENT_SCHED, PBS_EVENTCLASS_SCHED, LOG_INFO,
 				  "reconfigure", "Scheduler is reconfiguring");
 			reset_global_resource_ptrs();
@@ -603,15 +610,27 @@ intermediate_schedule(int sd, const sched_cmd *cmd)
 int
 scheduling_cycle(int sd, const sched_cmd *cmd)
 {
-	server_info *sinfo;		/* ptr to the server/queue/job/node info */
+	static server_info *keep_sinfo;	/* ptr to the server/queue/job/node info */
+	server_info *sinfo;
 	int rc = SUCCESS;		/* return code from main_sched_loop() */
 	char log_msg[MAX_LOG_SIZE];	/* used to log the message why a job can't run*/
 	int error = 0;			/* error happened, don't run main loop */
 	status *policy;			/* policy structure used for cycle */
+	int pre_last_cycle_time;
 	schd_error *err = NULL;
 
 	log_event(PBSEVENT_DEBUG, PBS_EVENTCLASS_REQUEST, LOG_DEBUG,
 		  "", "Starting Scheduling Cycle");
+		
+	if (got_configure) {
+		if (keep_sinfo != NULL) {
+			keep_sinfo->fairshare = NULL; /* This has been freed already */
+			free_server(keep_sinfo);
+			keep_sinfo = NULL;
+		}
+		got_configure = 0;
+		last_cycle_time = 0;
+	}
 
 	/* Decide whether we need to send "can't run" type updates this cycle */
 	if (time(NULL) - last_attr_updates >= sc_attrs.attr_update_period)
@@ -625,15 +644,65 @@ scheduling_cycle(int sd, const sched_cmd *cmd)
 	do_soft_cycle_interrupt = 0;
 	do_hard_cycle_interrupt = 0;
 #endif /* localmod 030 */
-	/* create the server / queue / job / node structures */
-	if ((sinfo = query_server(&cstat, sd)) == NULL) {
+
+	/* Keep time before we call query_server() so if something happens while we are in query_server() we don't miss it next cycle */
+	pre_last_cycle_time = time(NULL);
+	if ((keep_sinfo = query_server(&cstat, sd, keep_sinfo)) == NULL) {
 		log_event(PBSEVENT_SYSTEM, PBS_EVENTCLASS_SERVER, LOG_NOTICE,
 			  "", "Problem with creating server data structure");
-		end_cycle_tasks(sinfo);
+		last_cycle_time = 0;
+		end_cycle_tasks(keep_sinfo);
 		return 0;
 	}
+	last_cycle_time = pre_last_cycle_time;
+
+	/* jobid will not be NULL if we received a qrun request */
+	if (cmd->jid != NULL) {
+		log_event(PBSEVENT_JOB, PBS_EVENTCLASS_JOB, LOG_INFO, cmd->jid, "Received qrun request");
+		keep_sinfo->qrun_job = find_resource_resv(keep_sinfo->jobs, cmd->jid);
+		if (keep_sinfo->qrun_job == NULL && is_job_array(cmd->jid)) {
+			char jid[PBS_MAXSVRJOBID + 1];
+			char *bracket;
+			pbs_strncpy(jid, cmd->jid, sizeof(jid));
+			bracket = strchr(jid, (int)'[');
+			if (bracket != NULL) {
+				char *other_bracket;
+				other_bracket = strchr(cmd->jid, (int) ']');
+				strcpy(bracket + 1, other_bracket);
+				keep_sinfo->qrun_job = find_resource_resv(keep_sinfo->jobs, jid);
+			}
+		}
+
+		if (keep_sinfo->qrun_job == NULL) { /* something went wrong */
+			log_event(PBSEVENT_JOB, PBS_EVENTCLASS_JOB, LOG_INFO, cmd->jid, "Could not find job to qrun.");
+			error = 1;
+			rc = SCHD_ERROR;
+			sprintf(log_msg, "PBS Error: Scheduler can not find job");
+		}
+	}
+
+	if (init_scheduling_cycle(keep_sinfo->policy, sd, keep_sinfo) == 0) {
+		log_event(PBSEVENT_DEBUG, PBS_EVENTCLASS_SERVER, LOG_DEBUG,
+			  "", "init_scheduling_cycle failed.");
+		end_cycle_tasks(keep_sinfo);
+		return 0;
+	}
+
+	sinfo = dup_server_info(keep_sinfo);
 	policy = sinfo->policy;
 
+	if (sinfo->qrun_job != NULL) {
+		if (is_job_array(cmd->jid) > 1) /* is a single subjob or a range */
+			modify_job_array_for_qrun(sinfo->qrun_job, cmd->jid);
+
+		sinfo->qrun_job->can_not_run = 0;
+		if (sinfo->qrun_job->job != NULL) {
+			if (sinfo->qrun_job->job->is_waiting ||
+			    sinfo->qrun_job->job->is_held) {
+				set_job_state("Q", sinfo->qrun_job->job);
+			}
+		}
+	}
 
 	/* don't confirm reservations if we're handling a qrun request */
 	if (cmd->jid == NULL) {
@@ -650,40 +719,6 @@ scheduling_cycle(int sd, const sched_cmd *cmd)
 				return -1;
 
 			return 0;
-		}
-	}
-
-	/* jobid will not be NULL if we received a qrun request */
-	if (cmd->jid != NULL) {
-		log_event(PBSEVENT_JOB, PBS_EVENTCLASS_JOB, LOG_INFO, cmd->jid, "Received qrun request");
-		if (is_job_array(cmd->jid) > 1) /* is a single subjob or a range */
-			modify_job_array_for_qrun(sinfo, cmd->jid);
-		else
-			sinfo->qrun_job = find_resource_resv(sinfo->jobs, cmd->jid);
-
-		if (sinfo->qrun_job == NULL) { /* something went wrong */
-			log_event(PBSEVENT_JOB, PBS_EVENTCLASS_JOB, LOG_INFO, cmd->jid, "Could not find job to qrun.");
-			error = 1;
-			rc = SCHD_ERROR;
-			sprintf(log_msg, "PBS Error: Scheduler can not find job");
-		}
-	}
-
-
-	if (init_scheduling_cycle(policy, sd, sinfo) == 0) {
-		log_event(PBSEVENT_DEBUG, PBS_EVENTCLASS_SERVER, LOG_DEBUG, sinfo->name, "init_scheduling_cycle failed.");
-		end_cycle_tasks(sinfo);
-		return 0;
-	}
-
-
-	if (sinfo->qrun_job != NULL) {
-		sinfo->qrun_job->can_not_run = 0;
-		if (sinfo->qrun_job->job != NULL) {
-			if (sinfo->qrun_job->job->is_waiting ||
-				sinfo->qrun_job->job->is_held) {
-				set_job_state("Q", sinfo->qrun_job->job);
-			}
 		}
 	}
 
@@ -736,6 +771,9 @@ scheduling_cycle(int sd, const sched_cmd *cmd)
 	site_list_shares(stdout, sinfo, "eoc_", 1);
 #endif
 	end_cycle_tasks(sinfo);
+	free_server(sinfo);
+	/* Leaves dangling pointers in arrays like sinfo->jobs, but they will be recreated before used next cycle */
+	remove_finished_jobs(keep_sinfo); 
 
 	free_schd_error(err);
 	if (rc < 0)
@@ -1181,35 +1219,15 @@ schedexit(void)
 void
 end_cycle_tasks(server_info *sinfo)
 {
-	int i;
-
-	/* keep track of update used resources for fairshare */
-	if (sinfo != NULL && sinfo->policy->fair_share)
-		update_last_running(sinfo);
-
-	/* we copied in conf.fairshare into sinfo at the start of the cycle,
-	 * we don't want to free it now, or we'd lose all fairshare data
-	 */
 	if (sinfo != NULL) {
-		sinfo->fairshare = NULL;
-		free_server(sinfo);	/* free server and queues and jobs */
-	}
+		/* keep track of update used resources for fairshare */
+		if (sinfo->policy->fair_share)
+			update_last_running(sinfo);
 
-	/* close any open connections to peers */
-	for (i = 0; (i < NUM_PEERS) &&
-		(conf.peer_queues[i].local_queue != NULL); i++) {
-		if (conf.peer_queues[i].peer_sd >= 0) {
-			/* When peering "local", do not disconnect server */
-			if (conf.peer_queues[i].remote_server != NULL)
-				pbs_disconnect(conf.peer_queues[i].peer_sd);
-			conf.peer_queues[i].peer_sd = -1;
+		if (cmp_aoename != NULL) {
+			free(cmp_aoename);
+			cmp_aoename = NULL;
 		}
-	}
-
-	/* free cmp_aoename */
-	if (cmp_aoename != NULL) {
-		free(cmp_aoename);
-		cmp_aoename = NULL;
 	}
 
 	got_sigpipe = 0;

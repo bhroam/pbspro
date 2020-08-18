@@ -117,6 +117,8 @@ extern int send_job_attr_updates;
 extern int clust_primary_sock;
 
 extern int clust_secondary_sock;
+extern time_t last_cycle_time;
+extern int got_configure;
 
 /**
  * @brief

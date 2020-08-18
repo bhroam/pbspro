@@ -104,13 +104,10 @@ create_prev_job_info(resource_resv **jobs, int size)
 
 	for (i = 0; jobs[i] != NULL; i++) {
 		if(jobs[i]->job != NULL) {
-			npji[i].name = jobs[i]->name;
-			npji[i].resused = jobs[i]->job->resused;
+			npji[i].name = string_dup(jobs[i]->name);
+			npji[i].resused = dup_resource_req_list(jobs[i]->job->resused);
 			npji[i].entity_name = string_dup(jobs[i]->job->ginfo->name);
 
-			/* so the memory is not freed at the end of the scheduling cycle */
-			jobs[i]->name = NULL;
-			jobs[i]->job->resused = NULL;
 		}
 	}
 

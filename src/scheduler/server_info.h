@@ -53,13 +53,13 @@
  *      query_server - creates a structure of arrays consisting of a server
  *                      and all the queues and jobs that reside in that server
  */
-server_info *query_server(status *policy, int pbs_sd);
+server_info *query_server(status *policy, int pbs_sd, server_info *sinfo);
 
 /*
  *	query_server_info - collect information out of a statserver call
  *			    into a server_info structure
  */
-server_info *query_server_info(status *policy, struct batch_status *server);
+server_info *query_server_info(status *policy, struct batch_status *server, server_info *sinfo);
 
 /*
  * 	query_server_dyn_res - execute all configured server_dyn_res scripts
@@ -482,5 +482,7 @@ int compare_resource_avail_list(schd_resource *r1, schd_resource *r2);
 int compare_resource_avail(schd_resource *r1, schd_resource *r2);
 
 node_info **dup_unordered_nodes(node_info **old_unordered_nodes, node_info **nnodes);
+
+void clear_server_info_for_query(server_info *sinfo);
 
 #endif	/* _SERVER_INFO_H */

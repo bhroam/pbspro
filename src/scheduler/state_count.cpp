@@ -86,6 +86,7 @@ init_state_count(state_count *sc)
 	sc->invalid = 0;
 	sc->begin = 0;
 	sc->expired = 0;
+	sc->finished = 0;
 	sc->total = 0;
 }
 
@@ -127,6 +128,8 @@ count_states(resource_resv **jobs, state_count *sc)
 					sc->begin++;
 				else if (jobs[i]->job->is_expired)
 					sc->expired++;
+				else if (jobs[i]->job->is_finished)
+					sc->finished++;
 				else {
 					sc->invalid++;
 					log_event(PBSEVENT_JOB, PBS_EVENTCLASS_JOB, LOG_INFO, jobs[i]->name, "Job in unknown state");
@@ -138,7 +141,7 @@ count_states(resource_resv **jobs, state_count *sc)
 	sc->total = sc->queued + sc->running + sc->transit +
 		sc->exiting + sc->held + sc->waiting +
 		sc->suspended + sc->userbusy + sc->begin +
-		sc->expired + sc->invalid;
+		sc->expired + sc->finished + sc->invalid;
 
 }
 
@@ -166,6 +169,7 @@ total_states(state_count *sc1, state_count *sc2)
 	sc1->userbusy += sc2->userbusy;
 	sc1->begin += sc2->begin;
 	sc1->expired += sc2->expired;
+	sc1->finished += sc2->finished;
 	sc1->invalid += sc2->invalid;
 	sc1->total += sc2->total;
 }
@@ -228,6 +232,9 @@ state_count_add(state_count *sc, const char *job_state, int amount)
 
 		case 'X':
 			sc->expired += amount;
+			break;
+		case 'F':
+			sc->finished += amount;
 			break;
 
 		default:

@@ -444,7 +444,7 @@ add_resdef_to_array(resdef ***resdef_arr, resdef *def)
 		return -1;
 
 	tmp_arr[cnt] = def;
-	tmp_arr[cnt+1] = NULL;
+	tmp_arr[cnt + 1] = NULL;
 
 	*resdef_arr = tmp_arr;
 

@@ -1434,6 +1434,8 @@ mgr_server_unset(struct batch_request *preq, conn_t *conn)
 	svrattrl *plist;
 	int	  rc;
 
+	log_event(PBSEVENT_ADMIN, PBS_EVENTCLASS_SERVER, LOG_NOTICE, "job_history", "foo");
+
 	plist = (svrattrl *)GET_NEXT(preq->rq_ind.rq_manager.rq_attr);
 
 	/* Check unsetting pbs_license_info,			*/
@@ -1519,7 +1521,8 @@ mgr_server_unset(struct batch_request *preq, conn_t *conn)
 
 	rc = mgr_unset_attr(server.sv_attr, svr_attr_idx, svr_attr_def, SVR_ATR_LAST, plist,
 		preq->rq_perm, &bad_attr, (void *)&server, PARENT_TYPE_SERVER, INDIRECT_RES_CHECK);
-	if (rc != 0)
+
+	if (rc != 0) 
 		reply_badattr(rc, bad_attr, plist, preq);
 	else {
 		if (server.sv_attr[SVR_ATR_DefaultChunk].at_flags & ATR_VFLAG_MODIFY) {
@@ -1529,6 +1532,7 @@ mgr_server_unset(struct batch_request *preq, conn_t *conn)
 		plist = (svrattrl *)GET_NEXT(preq->rq_ind.rq_manager.rq_attr);
 		for (plist = (svrattrl *)GET_NEXT(preq->rq_ind.rq_manager.rq_attr);
 			plist != NULL; plist = (struct svrattrl *)GET_NEXT(plist->al_link)) {
+
 			if (strcasecmp(plist->al_name, ATTR_logevents) == 0) {
 				char dflt_log_event[22];
 				snprintf(dflt_log_event, sizeof(dflt_log_event), "%d", SVR_LOG_DFLT);
@@ -1588,9 +1592,12 @@ mgr_server_unset(struct batch_request *preq, conn_t *conn)
 					free_svrattrl(tm_list);
 				}
 			} else if (strcasecmp(plist->al_name, ATTR_scheduling) == 0)
-				set_attr_generic(&(server.sv_attr[(int)SVR_ATR_scheduling]),
-					    &svr_attr_def[(int) SVR_ATR_scheduling], "TRUE", NULL, SET);
-		}
+				set_attr_generic(&(server.sv_attr[(int)SVR_ATR_scheduling]), &svr_attr_def[(int) SVR_ATR_scheduling], "TRUE", NULL, SET);
+			else if (strcasecmp(plist->al_name, ATTR_JobHistoryEnable) == 0) {
+				set_attr_generic(&(server.sv_attr[(int) SVR_ATR_JobHistoryEnable]), &svr_attr_def[(int) SVR_ATR_JobHistoryEnable], "TRUE", NULL, SET);
+				set_job_history_enable(&(server.sv_attr[SVR_ATR_JobHistoryEnable]), &server, ATR_ACTION_ALTER);
+			}
+	}
 		svr_save_db(&server);
 		log_eventf(PBSEVENT_ADMIN, PBS_EVENTCLASS_SERVER, LOG_INFO,
 			msg_daemonname, msg_manager, msg_man_uns,

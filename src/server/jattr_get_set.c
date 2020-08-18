@@ -43,6 +43,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include "pbs_ifl.h"
 #include "libpbs.h"
 #include "attribute.h"
@@ -249,6 +250,7 @@ set_job_state(job *pjob, char val)
 {
 	if (pjob != NULL) {
 		set_attr_c(&pjob->ji_wattr[JOB_ATR_state], val, SET);
+		set_attr_l(&pjob->ji_wattr[JOB_ATR_mtime], time(NULL), EQ);
 	}
 }
 
@@ -263,8 +265,10 @@ set_job_state(job *pjob, char val)
 void
 set_job_substate(job *pjob, long val)
 {
-	if (pjob != NULL)
+	if (pjob != NULL) {
 		set_jattr_l_slim(pjob, JOB_ATR_substate, val, SET);
+		set_attr_l(&pjob->ji_wattr[JOB_ATR_mtime], time(NULL), EQ);
+	}
 }
 
 /**
@@ -286,6 +290,7 @@ set_jattr_generic(job *pjob, int attr_idx, char *val, char *rscn, enum batch_op 
 	if (pjob == NULL || val == NULL)
 		return 1;
 
+	set_attr_l(&pjob->ji_wattr[JOB_ATR_mtime], time(NULL), EQ);
 	return set_attr_generic(&pjob->ji_wattr[attr_idx], &job_attr_def[attr_idx], val, rscn, op);
 }
 
@@ -307,6 +312,7 @@ set_jattr_str_slim(job *pjob, int attr_idx, char *val, char *rscn)
 	if (pjob == NULL || val == NULL)
 		return 1;
 
+	set_attr_l(&pjob->ji_wattr[JOB_ATR_mtime], time(NULL), EQ);
 	return set_attr_generic(&pjob->ji_wattr[attr_idx], &job_attr_def[attr_idx], val, rscn, INTERNAL);
 }
 
@@ -329,6 +335,7 @@ set_jattr_l_slim(job *pjob, int attr_idx, long val, enum batch_op op)
 		return 1;
 
 	set_attr_l(&pjob->ji_wattr[attr_idx], val, op);
+	set_attr_l(&pjob->ji_wattr[JOB_ATR_mtime], time(NULL), EQ);
 
 	return 0;
 }
@@ -352,6 +359,7 @@ set_jattr_b_slim(job *pjob, int attr_idx, long val, enum batch_op op)
 		return 1;
 
 	set_attr_b(&pjob->ji_wattr[attr_idx], val, op);
+	set_attr_l(&pjob->ji_wattr[JOB_ATR_mtime], time(NULL), EQ);
 
 	return 0;
 }
@@ -375,6 +383,7 @@ set_jattr_c_slim(job *pjob, int attr_idx, char val, enum batch_op op)
 		return 1;
 
 	set_attr_c(&pjob->ji_wattr[attr_idx], val, op);
+	set_attr_l(&pjob->ji_wattr[JOB_ATR_mtime], time(NULL), EQ);
 
 	return 0;
 }
@@ -410,8 +419,10 @@ is_jattr_set(const job *pjob, int attr_idx)
 void
 mark_jattr_not_set(job *pjob, int attr_idx)
 {
-	if (pjob != NULL)
+	if (pjob != NULL) {
 		pjob->ji_wattr[attr_idx].at_flags &= ~ATR_VFLAG_SET;
+		set_attr_l(&pjob->ji_wattr[JOB_ATR_mtime], time(NULL), EQ);
+	}
 }
 
 /**
@@ -425,8 +436,10 @@ mark_jattr_not_set(job *pjob, int attr_idx)
 void
 mark_jattr_set(job *pjob, int attr_idx)
 {
-	if (pjob != NULL)
+	if (pjob != NULL) {
 		pjob->ji_wattr[attr_idx].at_flags |= ATR_VFLAG_SET;
+		set_attr_l(&pjob->ji_wattr[JOB_ATR_mtime], time(NULL), EQ);
+	}
 }
 
 /**

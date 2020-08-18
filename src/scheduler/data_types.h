@@ -278,7 +278,8 @@ struct state_count
 	int begin;			/* number of job arrays in begin state */
 	int expired;			/* expired jobs which are no longer running */
 	int invalid;			/* number of invalid jobs */
-	int total;			/* total number of jobs in all states */
+	int finished;			/* number of jobs in the finished state */
+	int total; /* total number of jobs in all states */
 };
 
 struct place
@@ -429,7 +430,7 @@ struct server_info
 	resource_resv **jobs;		/* all the jobs in the server */
 	resource_resv **all_resresv;	/* a list of all jobs and adv resvs */
 	event_list *calendar;		/* the calendar of events */
-	char *job_sort_formula;	/* set via the JSF attribute of either the sched, or the server */
+	char *job_sort_formula;		/* set via the JSF attribute of either the sched, or the server */
 
 	time_t server_time;		/* The time the server is at.  Could be in the
 					 * future if we're simulating
@@ -558,7 +559,8 @@ struct job_info
 	unsigned is_userbusy:1;
 	unsigned is_begin:1;		/* job array 'B' state */
 	unsigned is_expired:1;		/* 'X' pseudo state for simulated job end */
-	unsigned is_checkpointed:1;	/* job has been checkpointed */
+	unsigned is_finished : 1;	/* Job is a history job (i.e. state F) */
+	unsigned is_checkpointed : 1; /* job has been checkpointed */
 
 	unsigned can_not_preempt:1;	/* this job can not be preempted */
 
@@ -578,7 +580,6 @@ struct job_info
 	char *svr_inst_id;
 	char *comment;			/* comment field of job */
 	char *resv_id;			/* identifier of reservation job is in */
-	char *alt_id;			/* vendor assigned job identifier */
 	queue_info *queue;		/* queue where job resides */
 	resource_resv *resv;		/* the reservation the job is part of */
 	int priority;			/* PBS priority of job */
@@ -776,6 +777,7 @@ struct resv_info
 	selspec *select_orig;		/* original schedselect pre-alter */
 	selspec *select_standing;	/* original schedselect for standing reservations */
 	nspec **orig_nspec_arr;		/* original non-shrunk exec_vnode with exec_vnode chunk mapped to select chunk */
+	char *resv_nodes_str;		/* original resv_nodes, might be needed for remapping select */
 };
 
 /* resource reservation - used for both jobs and advanced reservations */
@@ -1097,6 +1099,7 @@ struct nspec
 	unsigned int go_provision:1; /* used to mark a node to be provisioned */
 	int seq_num;			/* sequence number of chunk */
 	int sub_seq_num;		/* sub sequence number for sort stabilization */
+	int rank;			/* rank of ninfo */
 	node_info *ninfo;
 	resource_req *resreq;
 	chunk *chk;

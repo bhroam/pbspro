@@ -57,7 +57,7 @@ resource_resv **query_reservations(int pbs_sd, server_info *sinfo, struct batch_
 /*
  *	query_resv_info - convert the servers batch_statys structure into a
  */
-resource_resv *query_resv(struct batch_status *resv, server_info *sinfo);
+resource_resv *query_resv(struct batch_status *resv, server_info *sinfo, resource_resv *presresv);
 
 /*
  *	new_resv_info - allocate and initialize new resv_info structure
@@ -117,5 +117,8 @@ int ralter_reduce_chunks(resource_resv *resv);
 
 /* Will we try and confirm this reservation in this cycle */
 int will_confirm(resource_resv *resv, time_t server_time);
+
+void modify_job_for_resv(resource_resv *rjob, resource_resv *resv, time_t server_time);
+int remove_resv_from_server(resource_resv **resvs, resource_resv *resresv);
 
 #endif /* _RESV_INFO_H */

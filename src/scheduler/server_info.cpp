@@ -180,12 +180,10 @@ extern char **environ;
  *
  */
 server_info *
-query_server(status *pol, int pbs_sd)
+query_server(status *pol, int pbs_sd, server_info *sinfo)
 {
 	struct batch_status *server;	/* info about the server */
 	struct batch_status *bs_resvs;	/* batch status of the reservations */
-	server_info *sinfo;		/* scheduler internal form of server info */
-	queue_info **qinfo;		/* array of queues on the server */
 	counts *cts;			/* used to count running per user/grp */
 	int num_express_queues = 0;	/* number of express queues */
 	int i;
@@ -193,6 +191,9 @@ query_server(status *pol, int pbs_sd)
 	resource_resv **jobs_alive;
 	status *policy;
 	int job_arrays_associated = FALSE;
+	queue_info **qinfo_arr;
+	resdef **new_resdef_to_check;
+	int recreate_resdef = 0;
 
 	if (pol == NULL)
 		return NULL;
@@ -215,8 +216,11 @@ query_server(status *pol, int pbs_sd)
 		return NULL;
 	}
 
+	if (sinfo != NULL)
+		clear_server_info_for_query(sinfo);
+
 	/* convert batch_status structure into server_info structure */
-	if ((sinfo = query_server_info(pol, server)) == NULL) {
+	if ((sinfo = query_server_info(pol, server, sinfo)) == NULL) {
 		pbs_statfree(server);
 		return NULL;
 	}
@@ -229,7 +233,7 @@ query_server(status *pol, int pbs_sd)
 
 	if(query_server_dyn_res(sinfo) == -1) {
 		pbs_statfree(server);
-		sinfo -> fairshare = NULL;
+		sinfo->fairshare = NULL;
 		free_server(sinfo);
 		return NULL;
 	}
@@ -250,8 +254,8 @@ query_server(status *pol, int pbs_sd)
 	 */
 	bs_resvs = stat_resvs(pbs_sd);
 
-	/* get the nodes, if any - NOTE: will set sinfo -> num_nodes */
-	if ((sinfo->nodes = query_nodes(pbs_sd, sinfo)) == NULL) {
+	/* get the nodes, if any - NOTE: will set sinfo->nodes */
+	if (query_nodes(pbs_sd, sinfo) == NULL) {
 		pbs_statfree(server);
 		sinfo->fairshare = NULL;
 		free_server(sinfo);
@@ -265,37 +269,37 @@ query_server(status *pol, int pbs_sd)
 			multi_node_sort);
 
 	/* get the queues */
-	if ((sinfo->queues = query_queues(policy, pbs_sd, sinfo)) == NULL) {
+	if ((qinfo_arr = query_queues(policy, pbs_sd, sinfo)) == NULL) {
 		pbs_statfree(server);
 		sinfo->fairshare = NULL;
 		free_server(sinfo);
 		pbs_statfree(bs_resvs);
 		return NULL;
 	}
+	free(sinfo->queues);
+	sinfo->queues = qinfo_arr;
 
-	if (sinfo->has_nodes_assoc_queue)
-		sinfo->unassoc_nodes =
-			node_filter(sinfo->nodes, sinfo->num_nodes, is_unassoc_node, NULL, 0);
-	else
+	if (sinfo->has_nodes_assoc_queue) {
+		if (sinfo->unassoc_nodes != sinfo->nodes)
+			free(sinfo->unassoc_nodes);
+		sinfo->unassoc_nodes = node_filter(sinfo->nodes, sinfo->num_nodes, is_unassoc_node, NULL, 0);
+	} else
 		sinfo->unassoc_nodes = sinfo->nodes;
 
 	/* count the queues and total up the individual queue states
 	 * for server totals. (total up all the state_count structs)
 	 */
-	qinfo = sinfo->queues;
-	while (*qinfo != NULL) {
-		sinfo->num_queues++;
-		total_states(&(sinfo->sc), &((*qinfo)->sc));
+	init_state_count(&sinfo->sc);
+	for (i = 0; sinfo->queues[i] != NULL; i++) {
+		total_states(&sinfo->sc, &sinfo->queues[i]->sc);
 
-		if ((*qinfo)->priority >= sc_attrs.preempt_queue_prio)
+		if (sinfo->queues[i]->priority >= sc_attrs.preempt_queue_prio)
 			num_express_queues++;
-
-		qinfo++;
 	}
+	sinfo->num_queues = i;
 
 	if (num_express_queues > 1)
 		sinfo->has_mult_express = 1;
-
 
 	/* sort the queues before we collect the jobs list (i.e. set_jobs())
 	 * in the case we don't sort the jobs and don't have by_queue turned on
@@ -303,6 +307,7 @@ query_server(status *pol, int pbs_sd)
 	if ((policy->round_robin == 1) || (policy->by_queue == 1))
 		qsort(sinfo->queues, sinfo->num_queues, sizeof(queue_info *),
 			cmp_queue_prio_dsc);
+
 	if (policy->round_robin == 1) {
 		int ret_val;
 		/* queues are already sorted in descending order of their priority */
@@ -317,9 +322,15 @@ query_server(status *pol, int pbs_sd)
 		}
 	}
 
-	/* get reservations, if any - NOTE: will set sinfo -> num_resvs */
+	sinfo->use_hard_duration = 0;
+	/* get reservations, if any - NOTE: will set sinfo->num_resvs */
 	sinfo->resvs = query_reservations(pbs_sd, sinfo, bs_resvs);
-	pbs_statfree(bs_resvs);
+	if (sinfo->resvs == NULL && bs_resvs != NULL) {
+		pbs_statfree(bs_resvs);
+		sinfo->fairshare = NULL;
+		free_server(sinfo);
+		return NULL;
+	}
 
 	if (create_server_arrays(sinfo) == 0) { /* bad stuff happened */
 		sinfo->fairshare = NULL;
@@ -336,16 +347,41 @@ query_server(status *pol, int pbs_sd)
 	associate_dependent_jobs(sinfo);
 
 	/* create res_to_check arrays based on current jobs/resvs */
-	policy->resdef_to_check = collect_resources_from_requests(sinfo->all_resresv);
-	policy->resdef_to_check_no_hostvnode = (resdef **)
-		filter_array((void **) policy->resdef_to_check,
-		no_hostvnode, NULL, NO_FLAGS);
-	policy->resdef_to_check_rassn = (resdef **)
-		filter_array((void **) policy->resdef_to_check,
-		def_rassn, NULL, NO_FLAGS);
-	policy->resdef_to_check_rassn_select = (resdef **)
-		filter_array((void **) policy->resdef_to_check,
-		def_rassn_select, NULL, NO_FLAGS);
+	new_resdef_to_check = collect_resources_from_requests(sinfo->all_resresv);
+	if (new_resdef_to_check != NULL) {
+		if (policy->resdef_to_check != NULL) {
+			for (i = 0; new_resdef_to_check[i] != NULL; i++) {
+				if (new_resdef_to_check[i] != policy->resdef_to_check[i]) {
+					recreate_resdef = 1;
+					break;
+				}
+			}
+			if (policy->resdef_to_check[i] != NULL)
+				recreate_resdef = 1;
+		} else
+			recreate_resdef = 1;
+
+		if (recreate_resdef) {
+			free(sinfo->nodesigs);
+			sinfo->nodesigs = NULL;
+			free(policy->resdef_to_check);
+			policy->resdef_to_check = new_resdef_to_check;
+
+			free(policy->resdef_to_check_no_hostvnode);
+			policy->resdef_to_check_no_hostvnode = (resdef **)
+				filter_array((void **) policy->resdef_to_check,
+					     no_hostvnode, NULL, NO_FLAGS);
+			free(policy->resdef_to_check_rassn);
+			policy->resdef_to_check_rassn = (resdef **)
+				filter_array((void **) policy->resdef_to_check,
+					     def_rassn, NULL, NO_FLAGS);
+			free(policy->resdef_to_check_rassn_select);
+			policy->resdef_to_check_rassn_select = (resdef **)
+				filter_array((void **) policy->resdef_to_check,
+					     def_rassn_select, NULL, NO_FLAGS);
+		} else
+			free(new_resdef_to_check);
+	}
 
 	sinfo->calendar = create_event_list(sinfo);
 
@@ -354,7 +390,7 @@ query_server(status *pol, int pbs_sd)
 		NULL, FILTER_FULL);
 	sinfo->exiting_jobs = resource_resv_filter(sinfo->jobs,
 		sinfo->sc.total, check_exit_job, NULL, 0);
-	if (sinfo->running_jobs == NULL || sinfo->exiting_jobs ==NULL) {
+	if (sinfo->running_jobs == NULL || sinfo->exiting_jobs == NULL) {
 		sinfo->fairshare = NULL;
 		free_server(sinfo);
 		return NULL;
@@ -441,23 +477,30 @@ query_server(status *pol, int pbs_sd)
 
 	for (i = 0; sinfo->nodes[i] != NULL; i++) {
 		node_info *ninfo = sinfo->nodes[i];
-		ninfo->nodesig = create_resource_signature(ninfo  ->res,
-			policy->resdef_to_check_no_hostvnode, ADD_ALL_BOOL);
-		ninfo->nodesig_ind = add_str_to_unique_array(&(sinfo->nodesigs),
-			ninfo->nodesig);
+		if (recreate_resdef) {
+			ninfo->nodesig = create_resource_signature(ninfo->res,
+				policy->resdef_to_check_no_hostvnode, ADD_ALL_BOOL);
+			ninfo->nodesig_ind = add_str_to_unique_array(&(sinfo->nodesigs),
+				ninfo->nodesig);
+		}
 
 		if(ninfo->has_ghost_job)
 			create_resource_assn_for_node(ninfo);
 
-		sinfo->nodes[i]->node_ind = i;
+		ninfo->node_ind = i;
 		sinfo->unordered_nodes[i] = ninfo;
+		
+		if (ninfo->node_events != NULL) {
+			free_te_list(ninfo->node_events);
+			ninfo->node_events = NULL;
+		}
 	}
 	sinfo->unordered_nodes[i] = NULL;
 
 
 	generic_sim(sinfo->calendar, TIMED_RUN_EVENT, 0, 0, add_node_events, NULL, NULL);
 
-	/* Create placement sets  after collecting jobs on nodes because
+	/* Create placement sets after collecting jobs on nodes because
 	 * we don't want to account for resources consumed by ghost jobs
 	 */
 	create_placement_sets(policy, sinfo);
@@ -484,6 +527,8 @@ query_server(status *pol, int pbs_sd)
 		free(np);
 	}
 
+	if (sinfo->buckets != NULL)
+		free_node_bucket_array(sinfo->buckets);
 	sinfo->buckets = create_node_buckets(policy, sinfo->nodes, sinfo->queues, UPDATE_BUCKET_IND);
 
 	if (sinfo->buckets != NULL) {
@@ -510,27 +555,29 @@ query_server(status *pol, int pbs_sd)
  *
  */
 server_info *
-query_server_info(status *pol, struct batch_status *server)
+query_server_info(status *pol, struct batch_status *server, server_info *sinfo)
 {
 	struct attrl *attrp;	/* linked list of attributes */
-	server_info *sinfo;	/* internal scheduler structure for server info */
 	schd_resource *resp;	/* a resource to help create the resource list */
 	sch_resource_t count;	/* used to convert string -> integer */
 	char *endp;		/* used with strtol() */
 	status *policy;
 
 	if (pol == NULL || server == NULL)
-		return NULL;
+		return sinfo;
+	
 
-	if ((sinfo = new_server_info(1)) == NULL)
-		return NULL;		/* error */
+	if (sinfo == NULL) {
+		if ((sinfo = new_server_info(1)) == NULL)
+			return NULL;
 
-	if (sinfo->liminfo == NULL)
-		return NULL;
+		if (sinfo->liminfo == NULL)
+			return NULL;
 
-	if ((sinfo->name = string_dup(server->name)) == NULL) {
-		free_server_info(sinfo);
-		return NULL;
+		if ((sinfo->name = string_dup(server->name)) == NULL) {
+			free_server_info(sinfo);
+			return NULL;
+		}
 	}
 
 	if ((sinfo->policy = dup_status(pol)) == NULL) {
@@ -540,9 +587,7 @@ query_server_info(status *pol, struct batch_status *server)
 
 	policy = sinfo->policy;
 
-	attrp = server->attribs;
-
-	while (attrp != NULL) {
+	for (attrp = server->attribs; attrp != NULL; attrp = attrp->next) {
 		if (is_reslimattr(attrp)) {
 			(void) lim_setlimits(attrp, LIM_RES, sinfo->liminfo);
 			if(strstr(attrp->value, "u:") != NULL)
@@ -579,7 +624,7 @@ query_server_info(status *pol, struct batch_status *server)
 				sinfo->node_group_enable = 0;
 		} else if (!strcmp(attrp->name, ATTR_NodeGroupKey))
 			sinfo->node_group_key = break_comma_list(attrp->value);
-		else if (!strcmp(attrp->name, ATTR_job_sort_formula)) {	/* Deprecated */
+		else if (!strcmp(attrp->name, ATTR_job_sort_formula)) { /* Deprecated */
 			sinfo->job_sort_formula = read_formula();
 			if (policy->sort_by[1].res_name != NULL) /* 0 is the formula itself */
 				log_event(PBSEVENT_DEBUG, PBS_EVENTCLASS_SERVER, LOG_DEBUG, __func__,
@@ -629,20 +674,20 @@ query_server_info(status *pol, struct batch_status *server)
 				sinfo->policy->backfill_depth = count;
 			if (count == 0)
 				sinfo->policy->backfill = 0;
-		} else if(!strcmp(attrp->name, ATTR_restrict_res_to_release_on_suspend)) {
+		} else if (!strcmp(attrp->name, ATTR_restrict_res_to_release_on_suspend)) {
 			char **resl;
 			resl = break_comma_list(attrp->value);
 			if(resl != NULL) {
+				free(policy->rel_on_susp);
 				policy->rel_on_susp = resstr_to_resdef(resl);
 				free_string_array(resl);
 			}
-		} else if(!strcmp(attrp->name, ATTR_has_runjob_hook)) {
+		} else if (!strcmp(attrp->name, ATTR_has_runjob_hook)) {
 			if (!strcmp(attrp->value, ATR_TRUE))
 				sinfo->has_runjob_hook = 1;
 			else
 				sinfo->has_runjob_hook = 0;
 		}
-		attrp = attrp->next;
 	}
 
 	if (sinfo->job_sort_formula == NULL && sc_attrs.job_sort_formula != NULL) {
@@ -1234,6 +1279,108 @@ new_server_info(int limallocflag)
 #endif
 
 	return sinfo;
+}
+
+void
+clear_server_info_for_query(server_info *sinfo)
+{
+	if (sinfo == NULL)
+		return;
+	
+	sinfo->has_soft_limit = 0;
+	sinfo->has_hard_limit = 0;
+	sinfo->has_user_limit = 0;
+	sinfo->has_grp_limit = 0;
+	sinfo->has_proj_limit = 0;
+	sinfo->has_all_limit = 0;
+	sinfo->has_mult_express = 0;
+	sinfo->has_prime_queue = 0;
+	sinfo->has_nonprime_queue = 0;
+	sinfo->has_nodes_assoc_queue = 0;
+	sinfo->has_ded_queue = 0;
+	sinfo->has_runjob_hook = 0;
+	sinfo->node_group_enable = 0;
+	if (sinfo->node_group_key != NULL) {
+		free_string_array(sinfo->node_group_key);
+		sinfo->node_group_key = NULL;
+	}
+	sinfo->eligible_time_enable = 0;
+	sinfo->provision_enable = 0;
+	sinfo->power_provisioning = 0;
+	sinfo->has_nonCPU_licenses = 0;
+	sinfo->use_hard_duration = 0;
+	sinfo->num_parts = 0;
+	if (sinfo->res != NULL)
+		free_resource_list(sinfo->res);
+	sinfo->res = NULL;
+	if (sinfo->npc_arr != NULL)
+		free_np_cache_array(sinfo->npc_arr);
+	sinfo->npc_arr = NULL;
+	sinfo->qrun_job = NULL;
+	sinfo->num_queues = 0;
+	sinfo->num_hostsets = 0;
+	sinfo->server_time = 0;
+	if (sinfo->job_sort_formula != NULL) {
+	
+		free(sinfo->job_sort_formula);
+		sinfo->job_sort_formula = NULL;
+	}
+
+	if (sinfo->liminfo != NULL)
+		lim_free_liminfo(sinfo->liminfo);
+	sinfo->liminfo = lim_alloc_liminfo();
+
+	init_state_count(&(sinfo->sc));
+	memset(sinfo->preempt_count, 0, (NUM_PPRIO + 1) * sizeof(int));
+
+	if (sinfo->policy != NULL) 
+		free_status(sinfo->policy);
+	sinfo->policy = NULL;
+
+	if (sinfo->queue_list != NULL)
+		free_queue_list(sinfo->queue_list);
+	sinfo->queue_list = NULL;
+
+	if (sinfo->calendar != NULL)
+		free_event_list(sinfo->calendar);
+	sinfo->calendar = NULL;
+
+	if (sinfo->user_counts != NULL)
+		free_counts_list(sinfo->user_counts);
+	sinfo->user_counts = NULL;
+
+	if (sinfo->user_counts != NULL)
+		free_counts_list(sinfo->group_counts);
+	sinfo->group_counts = NULL;
+
+	if (sinfo->user_counts != NULL)
+		free_counts_list(sinfo->project_counts);
+	sinfo->project_counts = NULL;
+
+	if (sinfo->alljobcounts != NULL)
+		free_counts_list(sinfo->alljobcounts);
+	sinfo->alljobcounts = NULL;
+
+	if (sinfo->total_user_counts != NULL)
+		free_counts_list(sinfo->total_user_counts);
+	sinfo->total_user_counts = NULL;
+
+	if (sinfo->total_group_counts != NULL)
+		free_counts_list(sinfo->total_group_counts);
+	sinfo->total_group_counts = NULL;
+
+	if (sinfo->total_project_counts != NULL)
+		free_counts_list(sinfo->total_project_counts);
+	sinfo->total_project_counts = NULL;
+
+	if (sinfo->total_alljobcounts != NULL)
+		free_counts_list(sinfo->total_alljobcounts);
+	sinfo->total_alljobcounts = NULL;
+
+#ifdef NAS
+			/* localmod 034 */
+			sinfo->share_head = NULL;
+#endif
 }
 
 /**
@@ -1950,6 +2097,15 @@ create_server_arrays(server_info *sinfo)
 	resource_resv **resresv_arr;	/* used as source array to copy */
 	int i = 0, j;
 
+	if (sinfo->jobs != NULL) {
+		free(sinfo->jobs);
+		sinfo->jobs = NULL;
+	}
+	if (sinfo->all_resresv != NULL) {
+		free(sinfo->all_resresv);
+		sinfo->all_resresv = NULL;
+	}
+
 	if ((job_arr = static_cast<resource_resv **>(malloc(sizeof(resource_resv *) * (sinfo->sc.total + 1)))) == NULL) {
 		log_err(errno, __func__, MEM_ERR_MSG);
 		return 0;
@@ -2227,6 +2383,7 @@ dup_server_info(server_info *osinfo)
 	nsinfo->has_nonCPU_licenses = osinfo->has_nonCPU_licenses;
 	nsinfo->use_hard_duration = osinfo->use_hard_duration;
 	nsinfo->pset_metadata_stale = osinfo->pset_metadata_stale;
+	nsinfo->has_runjob_hook = osinfo->has_runjob_hook;
 	nsinfo->name = string_dup(osinfo->name);
 	nsinfo->liminfo = lim_dup_liminfo(osinfo->liminfo);
 	nsinfo->server_time = osinfo->server_time;
@@ -2401,6 +2558,7 @@ dup_server_info(server_info *osinfo)
 
 	/* Copy the vector of server psets */
 	nsinfo->svr_to_psets = osinfo->svr_to_psets;
+	sort_jobs(nsinfo->policy, nsinfo);
 
 	return nsinfo;
 }
@@ -2875,8 +3033,7 @@ update_counts_on_run(counts *cts, resource_req *resreq)
  *		of a job
  *
  * @param[in]	cts 	- counts structure to update
- * @param[in]	resreq 	- the resource requirements of the job which
- *							ended
+ * @param[in]	resreq 	- the resource requirements of the job which ended
  *
  * @return	void
  *
@@ -3713,8 +3870,8 @@ refresh_total_counts(server_info *sinfo)
 int
 get_sched_rank()
 {
-	cstat.order++;
-	return cstat.order;
+	static long order = 0;
+	return ++order;
 }
 
 

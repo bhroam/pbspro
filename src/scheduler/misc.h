@@ -101,11 +101,6 @@ filter_array(void **ptrarr, int (*filter_func)(void*, void*),
 int calc_time_left_STF(resource_resv *resresv, sch_resource_t* min_time_left);
 
 /*
- *      string_array_verify - verify two string arrays are equal
- */
-unsigned string_array_verify(char **sa1, char **sa2);
-
-/*
  *
  *	match_string_array - match two NULL terminated string arrays
  *
@@ -137,14 +132,8 @@ char *string_array_to_str(char **strarr);
 int calc_time_left(resource_resv *jinfo, int use_hard_duration);
 
 /*
- *      cstrcmp - check string compare - compares two strings but doesn't bomb
- *                if either one is null
- */
-int cstrcmp(char *s1, char *s2);
-
-/*
- *      is_num - checks to see if the string is a number, size, float
- *               or time in string form
+ *	is_num - checks to see if the string is a number, size, float
+ *		or time in string form
  */
 int is_num(const char *str);
 
@@ -193,18 +182,17 @@ void *add_ptr_to_array(void *ptr_arr, void *ptr);
 int remove_str_from_array(char **arr, char *str);
 
 /*
- *      is_valid_pbs_name - is str a valid pbs username (POSIX.1 + ' ')
- *                          a valid name is: alpha numeric '-' '_' '.' or ' '
+ *	is_valid_pbs_name - is str a valid pbs username (POSIX.1 + ' ')
+ *			a valid name is: alpha numeric '-' '_' '.' or ' '
  */
 int is_valid_pbs_name(char *str, int len);
 
 /*
  *
- *      res_to_str - turn a resource (resource/resource_req) into
- *                   a string for printing.
- *      returns the resource in string format.  It is returned in a static
- *              buffer
- *              a null string ("") is returned on error
+ *	res_to_str - turn a resource (resource/resource_req) into
+ *		a string for printing.
+ *	returns the resource in string format.  It is returned in a static buffer
+ *		a null string ("") is returned on error
  */
 char *res_to_str(void *p, enum resource_fields fld);
 
@@ -294,6 +282,7 @@ add_str_to_unique_array(char ***str_arr, char *str);
  */
 void free_ptr_array (void *inp);
 
-
+struct batch_status *diff_batch_status(struct batch_status *prev_bs, struct batch_status *bs);
+struct batch_status *diff_batch_status_list(struct batch_status *old_bs, struct batch_status *bs);
 
 #endif	/* _MISC_H */
