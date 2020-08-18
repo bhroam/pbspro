@@ -523,7 +523,10 @@ find_timed_event(timed_event *te_list, const std::string &name, int ignore_disab
 		if (event_time == te->event_time || event_time == 0)
 			found_time = 1;
 
-		if (found_name + found_type + found_time == 3)
+		if (name.empty() || te->name == name)
+			found_name = 1;
+
+		if (found_type + found_time + found_name == 3)
 			break;
 	}
 
@@ -588,7 +591,7 @@ perform_event(status *policy, timed_event *event)
 			resresv = (resource_resv *) event->event_ptr;
 			if (sim_run_update_resresv(policy, resresv, NULL, NO_ALLPART) <= 0) {
 				log_event(PBSEVENT_SCHED, PBS_EVENTCLASS_JOB, LOG_INFO,
-					event->name, "Simulation: Event failed to be run");
+					event->name.c_str(), "Simulation: Event failed to be run");
 				ret = 0;
 			}
 			else {
@@ -613,7 +616,7 @@ perform_event(status *policy, timed_event *event)
 			break;
 		default:
 			log_event(PBSEVENT_SCHED, PBS_EVENTCLASS_JOB, LOG_INFO,
-				event->name, "Simulation: Unknown event type");
+				event->name.c_str(), "Simulation: Unknown event type");
 			ret = 0;
 	}
 	if (event->event_func != NULL)
@@ -621,7 +624,7 @@ perform_event(status *policy, timed_event *event)
 
 	if (ret)
 		log_eventf(PBSEVENT_DEBUG3, PBS_EVENTCLASS_JOB, LOG_DEBUG,
-			event->name, "Simulation: %s [%s]", logbuf, timebuf);
+			event->name.c_str(), "Simulation: %s [%s]", logbuf, timebuf);
 	return ret;
 }
 
@@ -1019,7 +1022,7 @@ dup_event_list(event_list *oelist, server_info *nsinfo)
 						      oelist->next_event->event_time);
 		if (nelist->next_event == NULL) {
 			log_event(PBSEVENT_SCHED, PBS_EVENTCLASS_SCHED, LOG_WARNING,
-			oelist->next_event->name, "can't find next event in duplicated list");
+			oelist->next_event->name.c_str(), "can't find next event in duplicated list");
 			free_event_list(nelist);
 			return NULL;
 		}
@@ -1030,7 +1033,7 @@ dup_event_list(event_list *oelist, server_info *nsinfo)
 			find_timed_event(nelist->events, oelist->first_run_event->name, TIMED_RUN_EVENT,
 					 oelist->first_run_event->event_time);
 		if (nelist->first_run_event == NULL) {
-			log_event(PBSEVENT_SCHED, PBS_EVENTCLASS_SCHED, LOG_WARNING, oelist->first_run_event->name,
+			log_event(PBSEVENT_SCHED, PBS_EVENTCLASS_SCHED, LOG_WARNING, oelist->first_run_event->name.c_str(),
 				"can't find first run event event in duplicated list");
 			free_event_list(nelist);
 			return NULL;
@@ -1319,7 +1322,7 @@ find_event_ptr(timed_event *ote, server_info *nsinfo)
 					    oep->resresv_ind, oep->rank);
 
 			if (event_ptr == NULL) {
-				log_event(PBSEVENT_SCHED, PBS_EVENTCLASS_SCHED, LOG_WARNING, ote->name,
+				log_event(PBSEVENT_SCHED, PBS_EVENTCLASS_SCHED, LOG_WARNING, ote->name.c_str(),
 					"Event can't be found in new server to be duplicated.");
 				event_ptr = NULL;
 			}
@@ -1398,7 +1401,6 @@ free_timed_event(timed_event *te)
 		if (te->event_type & TIMED_END_EVENT)
 			((resource_resv *)te->event_ptr)->end_event = NULL;
 	}
-
 	delete te;
 }
 
@@ -1463,10 +1465,8 @@ add_event(event_list *calendar, timed_event *te)
 		if (te->event_time > current_time) {
 			if (te->event_time < calendar->next_event->event_time)
 				calendar->next_event = te;
-			else if (te->event_time == calendar->next_event->event_time) {
-				calendar->next_event =
-					find_timed_event(calendar->events, te->event_time);
-			}
+			else if (te->event_time == calendar->next_event->event_time)
+				calendar->next_event = find_timed_event(calendar->events, te->event_time);
 		}
 	}
 	/* if next_event == NULL, then we've simulated to the end. */

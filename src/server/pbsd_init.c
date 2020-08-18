@@ -259,6 +259,9 @@ init_server_attrs()
 	set_sattr_l_slim(SVR_ATR_query_others, 1, SET);
 	set_sattr_l_slim(SVR_ATR_scheduling, 1, SET);
 
+	set_attr_generic(&(server.sv_attr[SVR_ATR_JobHistoryEnable]), &svr_attr_def[(int) SVR_ATR_JobHistoryEnable], ATR_TRUE, NULL, SET);
+	set_job_history_enable(&(server.sv_attr[SVR_ATR_JobHistoryEnable]), &server, ATR_ACTION_RECOV);
+
 	prdef = &svr_resc_def[RESC_NCPUS];
 	if (prdef) {
 		attribute *pattr = get_sattr(SVR_ATR_DefaultChunk);

@@ -722,9 +722,6 @@ node_sort_cmp(const void *vp1, const void *vp2, struct sort_info *si, enum sort_
 			break;
 	}
 
-	if (v1 == v2)
-		return 0;
-
 	if (si->order == ASC) {
 		if (v1 < v2)
 			return -1;
@@ -742,10 +739,11 @@ node_sort_cmp(const void *vp1, const void *vp2, struct sort_info *si, enum sort_
 		else if (v1 > v2)
 			return -1;
 		else {
+			// Always sort rank in ascending order so if all things are equal, nodes are sorted in pbsnodes order
 			if (rank1 < rank2)
-				return 1;
-			else
 				return -1;
+			else
+				return 1;
 		}
 	}
 }
@@ -1142,13 +1140,13 @@ cmp_job_preemption_time_asc(const void *j1, const void *j2)
 	 * If both jobs are preempted, one which is preempted first gets priority
 	 */
 	if (r1->job->time_preempted == UNSPECIFIED &&
-		r2->job->time_preempted ==UNSPECIFIED)
+		r2->job->time_preempted == UNSPECIFIED)
 		return 0;
 	else if (r1->job->time_preempted != UNSPECIFIED &&
-		r2->job->time_preempted ==UNSPECIFIED)
+		r2->job->time_preempted == UNSPECIFIED)
 		return -1;
 	else if (r1->job->time_preempted == UNSPECIFIED &&
-		r2->job->time_preempted !=UNSPECIFIED)
+		r2->job->time_preempted != UNSPECIFIED)
 		return 1;
 
 	if (r1->job->time_preempted < r2->job->time_preempted)
