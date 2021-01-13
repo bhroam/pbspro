@@ -637,6 +637,7 @@ query_jobs(status *policy, int pbs_sd, queue_info *qinfo, resource_resv **pjobs,
 	err = new_schd_error();
 	if(err == NULL) {
 		log_err(errno, __func__, MEM_ERR_MSG);
+		pbs_statfree(jobs);
 		return pjobs;
 	}
 
@@ -677,6 +678,7 @@ query_jobs(status *policy, int pbs_sd, queue_info *qinfo, resource_resv **pjobs,
 			 */
 			if (job != NULL) {
 				remove_ptr_from_array(resresv_arr, job);
+				sinfo->jobs_umap.erase(job->name);
 				i--;
 			}
 
@@ -690,6 +692,7 @@ query_jobs(status *policy, int pbs_sd, queue_info *qinfo, resource_resv **pjobs,
 			log_event(PBSEVENT_SCHED, PBS_EVENTCLASS_RESV, LOG_DEBUG,
 				resresv->name.c_str(), "Subjob found in undesirable state, ignoring this job");
 			if (job != NULL) {
+				sinfo->jobs_umap.erase(resresv->name);
 				remove_ptr_from_array(resresv_arr, job);
 				i--;
 			}
@@ -842,6 +845,7 @@ query_jobs(status *policy, int pbs_sd, queue_info *qinfo, resource_resv **pjobs,
 		}
 	}
 	free_schd_error(err);
+	pbs_statfree(jobs);
 
 	return resresv_arr;
 }

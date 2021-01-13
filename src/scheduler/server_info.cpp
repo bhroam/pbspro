@@ -1316,6 +1316,15 @@ clear_server_info_for_query(server_info *sinfo)
 	if (sinfo->npc_arr != NULL)
 		free_np_cache_array(sinfo->npc_arr);
 	sinfo->npc_arr = NULL;
+	if (sinfo->unordered_nodes != NULL)
+		free(sinfo->unordered_nodes);
+	sinfo->unordered_nodes = NULL;
+	if (sinfo->unassoc_nodes != NULL)
+		free(sinfo->unassoc_nodes);
+	sinfo->unassoc_nodes = NULL;
+	if (sinfo->nodesigs != NULL)
+		free_string_array(sinfo->nodesigs);
+	sinfo->nodesigs = NULL;
 	sinfo->qrun_job = NULL;
 	sinfo->num_queues = 0;
 	sinfo->num_hostsets = 0;
