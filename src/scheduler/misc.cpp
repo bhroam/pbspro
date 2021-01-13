@@ -318,7 +318,7 @@ skip_line(char *line)
  *	@return nothing
  */
 void
-schdlogerr(int event, int event_class, int sev, const char *name, const char *text,
+schdlogerr(int event, int event_class, int sev, const std::string& name, const char *text,
 	schd_error *err)
 {
 	char logbuf[MAX_LOG_SIZE];
@@ -329,9 +329,9 @@ schdlogerr(int event, int event_class, int sev, const char *name, const char *te
 	if (will_log_event(event)) {
 		translate_fail_code(err, NULL, logbuf);
 		if (text == NULL)
-			log_event(event, event_class, sev, name, logbuf);
+			log_event(event, event_class, sev, name.c_str(), logbuf);
 		else
-			log_eventf(event, event_class, sev, name, "%s %s", text, logbuf);
+			log_eventf(event, event_class, sev, name.c_str(), "%s %s", text, logbuf);
 	}
 }
 
@@ -784,13 +784,14 @@ add_ptr_to_array(void *ptr_arr, void *ptr)
 		arr[0] = ptr;
 		arr[1] = NULL;
 	} else {
-		arr = static_cast<void **>(realloc(ptr_arr, (cnt + 1) * sizeof(void *)));
+		// +2 because count_array() returns the actual number of elements.  We need 1 for the new element and 1 for the NULL
+		arr = static_cast<void **>(realloc(ptr_arr, (cnt + 2) * sizeof(void *)));
 		if (arr == NULL) {
 			log_err(errno, __func__, MEM_ERR_MSG);
 			return NULL;
 		}
-		arr[cnt - 1] = ptr;
-		arr[cnt] = NULL;
+		arr[cnt] = ptr;
+		arr[cnt + 1] = NULL;
 	}
 	return arr;
 }

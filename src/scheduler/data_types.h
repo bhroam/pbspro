@@ -40,7 +40,7 @@
 
 /**
  * A quick explanation of the scheduler's data model:
- * To free an object, use the object’s destructor (e.g., free_node_info())
+ * To free an object, use the object’s destructor
  * To free an array of objects, you need to know if you own the objects yourself
  * or are an array of references
  * If you own the objects(e.g., sinfo->nodes), you call the multi-object object
@@ -52,7 +52,9 @@
 #ifndef	_DATA_TYPES_H
 #define	_DATA_TYPES_H
 
-
+#include <unordered_map>
+#include <string>
+#include <vector>
 #include <time.h>
 #include <pbs_ifl.h>
 #include <libutil.h>
@@ -65,8 +67,6 @@
 #include "site_queue.h"
 #endif
 
-#include <vector>
-#include <string>
 
 struct server_info;
 struct state_count;
@@ -429,6 +429,8 @@ struct server_info
 	resource_resv **exiting_jobs;	/* array of jobs which are in state E */
 	resource_resv **jobs;		/* all the jobs in the server */
 	resource_resv **all_resresv;	/* a list of all jobs and adv resvs */
+	std::unordered_map<std::string, resource_resv *> jobs_umap; /* all jobs in an unordered map */
+	std::unordered_map<std::string, node_info *> nodes_umap; /* all nodes in an unoredered map */
 	event_list *calendar;		/* the calendar of events */
 	char *job_sort_formula;		/* set via the JSF attribute of either the sched, or the server */
 
@@ -596,7 +598,7 @@ struct job_info
 	group_info *ginfo;		/* the fair share node for the owner */
 
 	/* subjob information */
-	char *array_id;			/* job id of job array if we are a subjob */
+	std::string array_id;			/* job id of job array if we are a subjob */
 	int array_index;		/* array index if we are a subjob */
 	resource_resv *parent_job;	/* pointer to the parent array job */
 
@@ -691,7 +693,7 @@ struct node_info
 	/* sharing */
 	enum vnode_sharing sharing;	/* deflt or forced sharing/excl of the node */
 
-	char *name;			/* name of the node */
+	const std::string name;		/* name of the node */
 	char *mom;			/* host name on which mom resides */
 
 	char **jobs;			/* the name of the jobs currently on the node */
@@ -748,6 +750,9 @@ struct node_info
 	int node_ind;			/* node's index into sinfo->unordered_nodes */
 	node_partition **np_arr;	/* array of node partitions node is in */
 	char *svr_inst_id;
+
+	node_info(const char *);
+	~node_info();
 };
 
 struct resv_info
@@ -796,7 +801,7 @@ struct resource_resv
 
 	unsigned will_use_multinode:1;	/* res resv will use multiple nodes */
 
-	char *name;			/* name of res resv */
+	const std::string name;		/* name of res resv */
 	char *user;			/* username of the owner of the res resv */
 	char *group;			/* exec group of owner of res resv */
 	char *project;			/* exec project of owner of res resv */
@@ -836,6 +841,12 @@ struct resource_resv
 	int resresv_ind;		   /* resource_resv index in all_resresv array */
 	timed_event *run_event;		   /* run event in calendar */
 	timed_event *end_event;		   /* end event in calendar */
+
+	resource_resv(const char *);
+	~resource_resv();
+
+
+	
 };
 
 struct resource_type
@@ -1222,7 +1233,7 @@ struct event_list
 struct timed_event
 {
 	unsigned int disabled:1;	/* event is disabled - skip it in simulation */
-	const char *name;			/* [reference] name of event */
+	std::string name;		/* name of event */
 	enum timed_event_types event_type;
 	time_t event_time;
 	event_ptr_t *event_ptr;

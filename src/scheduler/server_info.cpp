@@ -1345,6 +1345,12 @@ clear_server_info_for_query(server_info *sinfo)
 		free_event_list(sinfo->calendar);
 	sinfo->calendar = NULL;
 
+	if (sinfo->running_jobs != NULL)
+		free(sinfo->running_jobs);
+	
+	if (sinfo->exiting_jobs != NULL)
+		free(sinfo->exiting_jobs);
+	
 	if (sinfo->user_counts != NULL)
 		free_counts_list(sinfo->user_counts);
 	sinfo->user_counts = NULL;
@@ -2182,7 +2188,7 @@ create_server_arrays(server_info *sinfo)
  * @retval	1	: job is running
  */
 int
-check_run_job(resource_resv *job, void *arg)
+check_run_job(resource_resv *job, const void *arg)
 {
 	if (job->is_job && job->job != NULL)
 		return job->job->is_running;
@@ -2201,7 +2207,7 @@ check_run_job(resource_resv *job, void *arg)
  * @retval	1	: if job is exiting
  */
 int
-check_exit_job(resource_resv *job, void *arg)
+check_exit_job(resource_resv *job, const void *arg)
 {
 	if (job->is_job && job->job != NULL)
 		return job->job->is_exiting;
@@ -2221,7 +2227,7 @@ check_exit_job(resource_resv *job, void *arg)
  * @retval	0	: if reservation is not running.
  */
 int
-check_run_resv(resource_resv *resv, void *arg)
+check_run_resv(resource_resv *resv, const void *arg)
 {
 	if (resv->is_resv && resv->resv != NULL)
 		return resv->resv->is_running;
@@ -2241,7 +2247,7 @@ check_run_resv(resource_resv *resv, void *arg)
  * @retval	0	: if job is not suspended
  */
 int
-check_susp_job(resource_resv *job, void *arg)
+check_susp_job(resource_resv *job, const void *arg)
 {
 	if (job->is_job && job->job != NULL)
 		return job->job->is_suspended;
@@ -2261,7 +2267,7 @@ check_susp_job(resource_resv *job, void *arg)
  * @retval	0	: if job is not running
  */
 int
-check_job_running(resource_resv *job, void *arg)
+check_job_running(resource_resv *job, const void *arg)
 {
 	if (job->is_job && (job->job->is_running || job->job->is_exiting || job->job->is_userbusy))
 		return 1;
@@ -2281,7 +2287,7 @@ check_job_running(resource_resv *job, void *arg)
  * @retval	0	: if job is not running or not in a reservation
  */
 int
-check_running_job_in_reservation(resource_resv *job, void *arg)
+check_running_job_in_reservation(resource_resv *job, const void *arg)
 {
 	if (job->is_job && job->job != NULL && job->job->resv != NULL &&
 		(check_job_running(job, arg) == 1))
@@ -2302,7 +2308,7 @@ check_running_job_in_reservation(resource_resv *job, void *arg)
  * @retval	0	: if job is not running or in a reservation
  */
 int
-check_running_job_not_in_reservation(resource_resv *job, void *arg)
+check_running_job_not_in_reservation(resource_resv *job, const void *arg)
 {
 	if (job->is_job && job->job != NULL && job->job->resv == NULL &&
 		(check_job_running(job, arg) == 1))
@@ -2323,7 +2329,7 @@ check_running_job_not_in_reservation(resource_resv *job, void *arg)
  * @retval	0	: if reservation is not running on node passed in arg
  */
 int
-check_resv_running_on_node(resource_resv *resv, void *arg)
+check_resv_running_on_node(resource_resv *resv, const void *arg)
 {
 	if (resv->is_resv && resv->resv != NULL) {
 		if (resv->resv->is_running || resv->resv->resv_state == RESV_BEING_DELETED)
@@ -2355,7 +2361,7 @@ dup_server_info(server_info *osinfo)
 
 	/* duplicate the server information */
 	if ((nsinfo = new_server_info(0)) == NULL)
-		return NULL;                /* error */
+		return NULL;			/* error */
 
 	if (osinfo->fairshare != NULL) {
 		nsinfo->fairshare = dup_fairshare_head(osinfo->fairshare);
@@ -2558,6 +2564,12 @@ dup_server_info(server_info *osinfo)
 
 	/* Copy the vector of server psets */
 	nsinfo->svr_to_psets = osinfo->svr_to_psets;
+	for (i = 0; nsinfo->jobs[i] != NULL; i++)
+		nsinfo->jobs_umap[nsinfo->jobs[i]->name] = nsinfo->jobs[i];
+	
+	for (i = 0; nsinfo->nodes[i] != NULL; i++)
+		nsinfo->nodes_umap[nsinfo->nodes[i]->name] = nsinfo->nodes[i];
+
 	sort_jobs(nsinfo->policy, nsinfo);
 
 	return nsinfo;

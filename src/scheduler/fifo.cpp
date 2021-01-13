@@ -362,7 +362,7 @@ init_scheduling_cycle(status *policy, int pbs_sd, server_info *sinfo)
 
 					if (user != NULL) {
 						for (j = 0; sinfo->running_jobs[j] != NULL &&
-						     strcmp(last_running[i].name, sinfo->running_jobs[j]->name); j++)
+						     strcmp(last_running[i].name, sinfo->running_jobs[j]->name.c_str()); j++)
 							;
 
 						if (sinfo->running_jobs[j] != NULL &&
@@ -372,8 +372,8 @@ init_scheduling_cycle(status *policy, int pbs_sd, server_info *sinfo)
 							now = formula_evaluate(conf.fairshare_res, sinfo->running_jobs[j], sinfo->running_jobs[j]->job->resused);
 							then = formula_evaluate(conf.fairshare_res, sinfo->running_jobs[j], last_running[i].resused);
 							delta = IF_NEG_THEN_ZERO(now - then);
-							log_eventf(PBSEVENT_DEBUG, PBS_EVENTCLASS_JOB, LOG_DEBUG, sinfo->running_jobs[j]->name, "now: %ld then: %ld delta: %lf", now, then, delta);
-							log_eventf(PBSEVENT_DEBUG, PBS_EVENTCLASS_JOB, LOG_DEBUG, sinfo->running_jobs[j]->name, "entity: %s", user->name);
+							log_eventf(PBSEVENT_DEBUG, PBS_EVENTCLASS_JOB, LOG_DEBUG, sinfo->running_jobs[j]->name.c_str(), "now: %ld then: %ld delta: %lf", now, then, delta);
+							log_eventf(PBSEVENT_DEBUG, PBS_EVENTCLASS_JOB, LOG_DEBUG, sinfo->running_jobs[j]->name.c_str(), "entity: %s", user->name);
 
 							gpath = user->gpath;
 							while (gpath != NULL) {
@@ -452,12 +452,12 @@ init_scheduling_cycle(status *policy, int pbs_sd, server_info *sinfo)
 				if (sinfo->job_sort_formula != NULL) {
 					double threshold = sc_attrs.job_sort_formula_threshold;
 					resresv->job->formula_value = formula_evaluate(sinfo->job_sort_formula, resresv, resresv->resreq);
-					log_eventf(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_DEBUG, resresv->name, "Formula Evaluation = %.*f",
+					log_eventf(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_DEBUG, resresv->name.c_str(), "Formula Evaluation = %.*f",
 						   float_digits(resresv->job->formula_value, FLOAT_NUM_DIGITS), resresv->job->formula_value);
 
 					if (!resresv->can_not_run && resresv->job->formula_value <= threshold) {
 						set_schd_error_codes(err, NOT_RUN, JOB_UNDER_THRESHOLD);
-						log_eventf(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_DEBUG, resresv->name, "Job's formula value %.*f is under threshold %.*f",
+						log_eventf(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_DEBUG, resresv->name.c_str(), "Job's formula value %.*f is under threshold %.*f",
 							   float_digits(resresv->job->formula_value, FLOAT_NUM_DIGITS), resresv->job->formula_value, float_digits(threshold, 2), threshold);
 						if (err->error_code != SUCCESS) {
 							update_job_can_not_run(pbs_sd, resresv, err);
@@ -931,7 +931,7 @@ main_sched_loop(status *policy, int sd, server_info *sinfo, schd_error **rerr)
 		clear_schd_error(err);
 
 		log_event(PBSEVENT_DEBUG, PBS_EVENTCLASS_JOB, LOG_DEBUG,
-			njob->name, "Considering job to run");
+			njob->name.c_str(), "Considering job to run");
 
 		should_use_buckets = job_should_use_buckets(njob);
 		if(should_use_buckets)
@@ -997,7 +997,7 @@ main_sched_loop(status *policy, int sd, server_info *sinfo, schd_error **rerr)
 		 */
 		if (rc == SCHD_ERROR || rc == PBSE_PROTOCOL || got_sigpipe) {
 			end_cycle = 1;
-			log_event(PBSEVENT_ERROR, PBS_EVENTCLASS_JOB, LOG_WARNING, njob->name, "Leaving scheduling cycle because of an internal error.");
+			log_event(PBSEVENT_ERROR, PBS_EVENTCLASS_JOB, LOG_WARNING, njob->name.c_str(), "Leaving scheduling cycle because of an internal error.");
 		}
 		else if (rc != SUCCESS && rc != RUN_FAILURE) {
 			int cal_rc;
@@ -1044,7 +1044,7 @@ main_sched_loop(status *policy, int sd, server_info *sinfo, schd_error **rerr)
 					end_cycle = 1;
 					rc = -1;
 					log_event(PBSEVENT_DEBUG, PBS_EVENTCLASS_SERVER, LOG_DEBUG,
-						njob->name, "Error in add_job_to_calendar");
+						njob->name.c_str(), "Error in add_job_to_calendar");
 				}
 				/* else cal_rc == 0: failed to add to calendar - continue on */
 			}
@@ -1085,7 +1085,7 @@ main_sched_loop(status *policy, int sd, server_info *sinfo, schd_error **rerr)
 				update_job_comment(sd, njob, comment);
 			if (log_msg[0] != '\0')
 				log_event(PBSEVENT_SCHED, PBS_EVENTCLASS_JOB,
-					LOG_INFO, njob->name, log_msg);
+					LOG_INFO, njob->name.c_str(), log_msg);
 
 			/* If this job couldn't run, the mark the equiv class so the rest of the jobs are discarded quickly.*/
 			if(sinfo->equiv_classes != NULL && njob->ec_index != UNSPECIFIED) {
@@ -1099,7 +1099,7 @@ main_sched_loop(status *policy, int sd, server_info *sinfo, schd_error **rerr)
 
 		if (njob->can_never_run) {
 			log_event(PBSEVENT_SCHED, PBS_EVENTCLASS_JOB, LOG_WARNING,
-				njob->name, "Job will never run with the resources currently configured in the complex");
+				njob->name.c_str(), "Job will never run with the resources currently configured in the complex");
 		}
 		if ((rc != SUCCESS) && njob->job->resv == NULL) {
 			/* jobs in reservations are outside of the law... they don't cause
@@ -1145,11 +1145,11 @@ main_sched_loop(status *policy, int sd, server_info *sinfo, schd_error **rerr)
 
 			if (is_conn_lost) {
 				log_event(PBSEVENT_SCHED, PBS_EVENTCLASS_JOB, LOG_WARNING,
-					njob->name, "We lost connection with the server, leaving scheduling cycle");
+					njob->name.c_str(), "We lost connection with the server, leaving scheduling cycle");
 				end_cycle = 1;
 			} else if ((rc == 1) && (cmd.cmd == SCH_SCHEDULE_RESTART_CYCLE)) {
 				log_event(PBSEVENT_SCHED, PBS_EVENTCLASS_JOB, LOG_WARNING,
-					njob->name, "Leaving scheduling cycle as requested by server.");
+					njob->name.c_str(), "Leaving scheduling cycle as requested by server.");
 				end_cycle = 1;
 			}
 		}
@@ -1318,7 +1318,7 @@ update_job_can_not_run(int pbs_sd, resource_resv *job, schd_error *err)
 
 		if (log_buf[0] != '\0')
 			log_event(PBSEVENT_SCHED, PBS_EVENTCLASS_JOB, LOG_INFO,
-				job->name, log_buf);
+				job->name.c_str(), log_buf);
 
 		/* We won't be looking at this job in main_sched_loop()
 		 * and we just updated some attributes just above.  Send Now.
@@ -1380,7 +1380,7 @@ run_job(int pbs_sd, resource_resv *rjob, char *execvnode, int has_runjob_hook, s
 				rjob->server->name);
 		}
 
-		rc = pbs_movejob(rjob->job->peer_sd, rjob->name, buf, NULL);
+		rc = pbs_movejob(rjob->job->peer_sd, const_cast<char *>(rjob->name.c_str()), buf, NULL);
 
 		/*
 		 * After successful transfer of the peer job to local server,
@@ -1402,7 +1402,7 @@ run_job(int pbs_sd, resource_resv *rjob, char *execvnode, int has_runjob_hook, s
 			}
 			if (rc > 0) {
 				if (strlen(timebuf) > 0)
-					log_eventf(PBSEVENT_SCHED, PBS_EVENTCLASS_JOB, LOG_NOTICE, rjob->name,
+					log_eventf(PBSEVENT_SCHED, PBS_EVENTCLASS_JOB, LOG_NOTICE, rjob->name.c_str(),
 						"Job will run for duration=%s", timebuf);
 				rc = send_run_job(pbs_sd, has_runjob_hook, rjob->name, execvnode, svr_id_node,
  						  rjob->job->svr_inst_id);
@@ -1422,7 +1422,7 @@ run_job(int pbs_sd, resource_resv *rjob, char *execvnode, int has_runjob_hook, s
 		snprintf(buf, sizeof(buf), "%d", pbs_errno);
 		set_schd_error_arg(err, ARG2, buf);
 #ifdef NAS /* localmod 031 */
-		set_schd_error_arg(err, ARG3, rjob->name);
+		set_schd_error_arg(err, ARG3, rjob->name.c_str());
 #endif /* localmod 031 */
 	}
 
@@ -1455,7 +1455,7 @@ static int translate_runjob_return_code (int pbsrc, resource_resv *bjob)
         case PBSE_HOOKERROR:
             return 0;
         default:
-	    log_eventf(PBSEVENT_ERROR, PBS_EVENTCLASS_JOB, LOG_WARNING, bjob->name,
+	    log_eventf(PBSEVENT_ERROR, PBS_EVENTCLASS_JOB, LOG_WARNING, bjob->name.c_str(),
 	    	"Transient job warning.  Job may get held if issue persists:%d",pbsrc);
 	    return 2;
     }
@@ -1519,7 +1519,7 @@ run_update_resresv(status *policy, int pbs_sd, server_info *sinfo,
 		ret = -1;
 
 	if (!is_resource_resv_valid(resresv, err)) {
-		schdlogerr(PBSEVENT_DEBUG2, PBS_EVENTCLASS_SCHED, LOG_DEBUG, (char *) __func__, "Request not valid:", err);
+		schdlogerr(PBSEVENT_DEBUG2, PBS_EVENTCLASS_SCHED, LOG_DEBUG, std::string(__func__), "Request not valid:", err);
 		ret = -1;
 	}
 
@@ -1533,7 +1533,7 @@ run_update_resresv(status *policy, int pbs_sd, server_info *sinfo,
 	pbs_errno = PBSE_NONE;
 	if (resresv->is_job && resresv->job->is_suspended) {
 		if (pbs_sd != SIMULATE_SD) {
-			pbsrc = pbs_sigjob(get_svr_inst_fd(pbs_sd, resresv->job->svr_inst_id), resresv->name, const_cast<char *>("resume"), NULL);
+			pbsrc = pbs_sigjob(get_svr_inst_fd(pbs_sd, resresv->job->svr_inst_id), const_cast<char *>(resresv->name.c_str()), const_cast<char *>("resume"), NULL);
 			if (!pbsrc)
 				ret = 1;
 			else {
@@ -1651,7 +1651,7 @@ run_update_resresv(status *policy, int pbs_sd, server_info *sinfo,
 					printf("%04d-%02d-%02d %02d:%02d:%02d %s %s %s\n",
 						ptm->tm_year+1900, ptm->tm_mon+1, ptm->tm_mday,
 						ptm->tm_hour, ptm->tm_min, ptm->tm_sec,
-						"Running", resresv->name,
+						"Running", resresv->name.c_str(),
 						execvnode != NULL ? execvnode : "(NULL)");
 					fflush(stdout);
 #endif /* localmod 031 */
@@ -1673,7 +1673,7 @@ run_update_resresv(status *policy, int pbs_sd, server_info *sinfo,
 				ret = 1;
 		}
 		else  { /* should never happen */
-			log_event(PBSEVENT_SCHED, PBS_EVENTCLASS_JOB, LOG_NOTICE, rr->name,
+			log_event(PBSEVENT_SCHED, PBS_EVENTCLASS_JOB, LOG_NOTICE, rr->name.c_str(),
 				"Could not find node solution in run_update_resresv()");
 			set_schd_error_codes(err, NOT_RUN, SCHD_ERROR);
 			ret = 0;
@@ -1716,7 +1716,7 @@ run_update_resresv(status *policy, int pbs_sd, server_info *sinfo,
 
 		if (rr->is_job && !(flags & RURR_NOPRINT)) {
 				log_event(PBSEVENT_SCHED, PBS_EVENTCLASS_JOB,
-					LOG_INFO, rr->name, "Job run");
+					LOG_INFO, rr->name.c_str(), "Job run");
 		}
 		if ((resresv->is_job) && (resresv->job->is_suspended ==1))
 			old_state = 'S';
@@ -2012,7 +2012,7 @@ add_job_to_calendar(int pbs_sd, status *policy, server_info *sinfo,
 		 * Note: We only ever look from now into the future
 		 */
 		nexte = get_next_event(sinfo->calendar);
-		if (find_timed_event(nexte, IGNORE_DISABLED_EVENTS, topjob->name, TIMED_NOEVENT, 0) != NULL)
+		if (find_timed_event(nexte, IGNORE_DISABLED_EVENTS, TIMED_NOEVENT, 0, topjob->name) != NULL)
 			return 1;
 	}
 	if ((nsinfo = dup_server_info(sinfo)) == NULL)
@@ -2029,7 +2029,7 @@ add_job_to_calendar(int pbs_sd, status *policy, server_info *sinfo,
 		   topjob->name, "Estimating the start time for a top job (q=%s schedselect=%.1000s).", topjob->job->queue->name, topjob->job->schedsel);
 #else
 	log_event(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_DEBUG,
-		topjob->name, "Estimating the start time for a top job.");
+		topjob->name.c_str(), "Estimating the start time for a top job.");
 #endif /* localmod 031 */
 	if(use_buckets)
 		start_time = calc_run_time(njob->name, nsinfo, SIM_RUN_JOB|USE_BUCKETS);
@@ -2125,7 +2125,7 @@ add_job_to_calendar(int pbs_sd, status *policy, server_info *sinfo,
 		if (update_estimated_attrs(pbs_sd, bjob, bjob->job->est_start_time,
 			bjob->job->est_execvnode, 0) <0) {
 			log_event(PBSEVENT_SCHED, PBS_EVENTCLASS_SCHED, LOG_WARNING,
-				bjob->name, "Failed to update estimated attrs.");
+				bjob->name.c_str(), "Failed to update estimated attrs.");
 		}
 
 
@@ -2155,7 +2155,7 @@ add_job_to_calendar(int pbs_sd, status *policy, server_info *sinfo,
 			 * cycles
 			 */
 			update_usage_on_run(bjob);
-			log_eventf(PBSEVENT_DEBUG, PBS_EVENTCLASS_JOB, LOG_DEBUG, bjob->name,
+			log_eventf(PBSEVENT_DEBUG, PBS_EVENTCLASS_JOB, LOG_DEBUG, bjob->name.c_str(),
 				"Fairshare usage of entity %s increased due to job becoming a top job.", bjob->job->ginfo->name);
 		}
 
@@ -2163,9 +2163,9 @@ add_job_to_calendar(int pbs_sd, status *policy, server_info *sinfo,
 			ctime(&bjob->start));
 
 		log_buf[strlen(log_buf)-1] = '\0';	/* ctime adds a \n */
-		log_event(PBSEVENT_DEBUG, PBS_EVENTCLASS_JOB, LOG_DEBUG, bjob->name, log_buf);
+		log_event(PBSEVENT_DEBUG, PBS_EVENTCLASS_JOB, LOG_DEBUG, bjob->name.c_str(), log_buf);
 	} else if (start_time == 0) {
-		log_event(PBSEVENT_SCHED, PBS_EVENTCLASS_JOB, LOG_WARNING, topjob->name,
+		log_event(PBSEVENT_SCHED, PBS_EVENTCLASS_JOB, LOG_WARNING, topjob->name.c_str(),
 			"Error in calculation of start time of top job");
 		free_server(nsinfo);
 		return 0;

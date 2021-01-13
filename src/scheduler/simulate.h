@@ -42,6 +42,7 @@
 
 #include "data_types.h"
 #include "constant.h"
+#include "globals.h"
 
 /*
  *	simulate_events - simulate the future of a PBS universe
@@ -132,11 +133,8 @@ void set_timed_event_disabled(timed_event *te, int disabled);
  *
  */
 timed_event *
-find_timed_event(timed_event *te_list, int ignore_disabled, const char *name,
-	enum timed_event_types event_type, time_t event_time);
-
-
-
+find_timed_event(timed_event *te_list, int ignore_disabled,
+		 enum timed_event_types event_type = TIMED_NOEVENT, time_t event_time = 0, const std::string& name = {});
 
 /*
  *      next_event - move an event_list to the next event and return it
@@ -342,7 +340,7 @@ create_event(enum timed_event_types event_type,
  *	returns time_t of when the job will run
  *		or -1 on error
  */
-time_t calc_run_time(char *job_name, server_info *sinfo, int flags);
+time_t calc_run_time(const std::string &job_name, server_info *sinfo, int flags);
 
 /*
  *

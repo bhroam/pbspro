@@ -501,7 +501,7 @@ update_usage_on_run(resource_resv *resresv)
 		}
 	}
 	else
-		log_event(PBSEVENT_JOB, PBS_EVENTCLASS_JOB, LOG_INFO, resresv->name,
+		log_event(PBSEVENT_JOB, PBS_EVENTCLASS_JOB, LOG_INFO, resresv->name.c_str(),
 			"Job doesn't have a group_info ptr set, usage not updated.");
 }
 

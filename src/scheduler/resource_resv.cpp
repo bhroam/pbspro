@@ -48,7 +48,6 @@
  * Functions included are:
  * 	new_resource_resv()
  * 	free_resource_resv_array()
- * 	free_resource_resv()
  * 	dup_resource_resv_array()
  * 	dup_resource_resv()
  * 	find_resource_resv()
@@ -128,75 +127,63 @@
  * @return	ptr to newly allocated resource_resv struct
  *
  */
-resource_resv *
-new_resource_resv()
+resource_resv::resource_resv(const char *rname) : name(rname)
 {
-	resource_resv *resresv = NULL;
+	this->user = NULL;
+	this->group = NULL;
+	this->project = NULL;
+	this->nodepart_name = NULL;
+	this->select = NULL;
+	this->execselect = NULL;
 
-	if ((resresv = static_cast<resource_resv *>(malloc(sizeof(resource_resv)))) == NULL) {
-		log_err(errno, __func__, MEM_ERR_MSG);
-		return NULL;
-	}
+	this->place_spec = NULL;
 
+	this->is_invalid = 0;
+	this->can_not_fit = 0;
+	this->can_not_run = 0;
+	this->can_never_run = 0;
+	this->is_peer_ob = 0;
 
-	resresv->name = NULL;
-	resresv->user = NULL;
-	resresv->group = NULL;
-	resresv->project = NULL;
-	resresv->nodepart_name = NULL;
-	resresv->select = NULL;
-	resresv->execselect = NULL;
+	this->is_prov_needed = 0;
+	this->is_job = 0;
+	this->is_shrink_to_fit = 0;
+	this->is_resv = 0;
 
-	resresv->place_spec = NULL;
+	this->will_use_multinode = 0;
 
-	resresv->is_invalid = 0;
-	resresv->can_not_fit = 0;
-	resresv->can_not_run = 0;
-	resresv->can_never_run = 0;
-	resresv->is_peer_ob = 0;
+	this->sch_priority = 0;
+	this->rank = 0;
+	this->qtime = 0;
+	this->qrank = 0;
 
-	resresv->is_prov_needed = 0;
-	resresv->is_job = 0;
-	resresv->is_shrink_to_fit = 0;
-	resresv->is_resv = 0;
+	this->ec_index = UNSPECIFIED;
 
-	resresv->will_use_multinode = 0;
+	this->start = UNSPECIFIED;
+	this->end = UNSPECIFIED;
+	this->duration = UNSPECIFIED;
+	this->hard_duration = UNSPECIFIED;
+	this->min_duration = UNSPECIFIED;
 
-	resresv->sch_priority = 0;
-	resresv->rank = 0;
-	resresv->qtime = 0;
-	resresv->qrank = 0;
+	this->resreq = NULL;
+	this->server = NULL;
+	this->ninfo_arr = NULL;
+	this->nspec_arr = NULL;
 
-	resresv->ec_index = UNSPECIFIED;
+	this->job = NULL;
+	this->resv = NULL;
 
-	resresv->start = UNSPECIFIED;
-	resresv->end = UNSPECIFIED;
-	resresv->duration = UNSPECIFIED;
-	resresv->hard_duration = UNSPECIFIED;
-	resresv->min_duration = UNSPECIFIED;
-
-	resresv->resreq = NULL;
-	resresv->server = NULL;
-	resresv->ninfo_arr = NULL;
-	resresv->nspec_arr = NULL;
-
-	resresv->job = NULL;
-	resresv->resv = NULL;
-
-	resresv->aoename = NULL;
-	resresv->eoename = NULL;
+	this->aoename = NULL;
+	this->eoename = NULL;
 
 #ifdef NAS /* localmod 034 */
-	resresv->share_type = J_TYPE_ignore;
+	this->share_type = J_TYPE_ignore;
 #endif /* localmod 034 */
 
-	resresv->node_set_str = NULL;
-	resresv->node_set = NULL;
-	resresv->resresv_ind = -1;
-	resresv->run_event = NULL;
-	resresv->end_event = NULL;
-
-	return resresv;
+	this->node_set_str = NULL;
+	this->node_set = NULL;
+	this->resresv_ind = -1;
+	this->run_event = NULL;
+	this->end_event = NULL;
 }
 
 /**
@@ -219,7 +206,7 @@ free_resource_resv_array_chunk(th_data_free_resresv *data)
 	end = data->eidx;
 
 	for (i = start; i <= end && resresv_arr[i] != NULL; i++) {
-		free_resource_resv(resresv_arr[i]);
+		delete resresv_arr[i];
 	}
 }
 
@@ -324,80 +311,26 @@ free_resource_resv_array(resource_resv **resresv_arr)
 	free(resresv_arr);
 }
 
-/**
- * @brief
- *		free_resource_resv - free a resource resv strcture an all of it's ptrs
- *
- * @param[in]	resresv	-	resource_resv to free
- *
- * @return	nothing
- *
- */
-void
-free_resource_resv(resource_resv *resresv)
+resource_resv::~resource_resv()
 {
-	if (resresv == NULL)
-		return;
-
-	if (resresv->name != NULL)
-		free(resresv->name);
-
-	if (resresv->user != NULL)
-		free(resresv->user);
-
-	if (resresv->group != NULL)
-		free(resresv->group);
-
-	if (resresv->project != NULL)
-		free(resresv->project);
-
-	if (resresv->nodepart_name != NULL)
-		free(resresv->nodepart_name);
-
-	if (resresv->select != NULL)
-		free_selspec(resresv->select);
-
-	if (resresv->execselect != NULL)
-		free_selspec(resresv->execselect);
-
-	if (resresv->place_spec != NULL)
-		free_place(resresv->place_spec);
-
-	if (resresv->resreq != NULL)
-		free_resource_req_list(resresv->resreq);
-
-	if (resresv->ninfo_arr != NULL)
-		free(resresv->ninfo_arr);
-
-	if (resresv->nspec_arr != NULL)
-		free_nspecs(resresv->nspec_arr);
-
-	if (resresv->job != NULL)
-		free_job_info(resresv->job);
-
-	if (resresv->resv != NULL)
-		free_resv_info(resresv->resv);
-
-	if (resresv->aoename != NULL)
-		free(resresv->aoename);
-
-	if (resresv->eoename != NULL)
-		free(resresv->eoename);
-
-	if (resresv->node_set_str != NULL)
-		free_string_array(resresv->node_set_str);
-
-	if (resresv->node_set != NULL)
-		free(resresv->node_set);
-
-	/* Avoid dangling pointers inside the calendar */
-	if (resresv->run_event != NULL)
-		delete_event(resresv->server, resresv->run_event);
-
-	if (resresv->end_event != NULL)
-		delete_event(resresv->server, resresv->end_event);
-
-	free(resresv);
+	free(this->user);
+	free(this->group);
+	free(this->project);
+	free(this->nodepart_name);
+	free_selspec(this->select);
+	free_selspec(this->execselect);
+	free_place(this->place_spec);
+	free_resource_req_list(this->resreq);
+	free(this->ninfo_arr);
+	free_nspecs(this->nspec_arr);
+	free_job_info(this->job);
+	free_resv_info(this->resv);
+	free(this->aoename);
+	free(this->eoename);
+	free_string_array(this->node_set_str);
+	free(this->node_set);
+	delete_event(this->server, this->run_event);
+	delete_event(this->server, this->end_event);
 }
 
 /**
@@ -414,14 +347,13 @@ dup_resource_resv_array_chunk(th_data_dup_resresv *data)
 	resource_resv **oresresv_arr;
 	server_info *nsinfo;
 	queue_info *nqinfo;
+	schd_error *err;
 	int start;
 	int end;
 	int i;
-	schd_error *err;
 
 	err = new_schd_error();
 	if (err == NULL) {
-		log_err(errno, __func__, MEM_ERR_MSG);
 		data->error = 1;
 		return;
 	}
@@ -434,13 +366,12 @@ dup_resource_resv_array_chunk(th_data_dup_resresv *data)
 	end = data->eidx;
 	data->error = 0;
 	for (i = start; i <= end && oresresv_arr[i] != NULL; i++) {
-		if ((nresresv_arr[i] = dup_resource_resv(oresresv_arr[i], nsinfo, nqinfo, err)) == NULL) {
+		if ((nresresv_arr[i] = dup_resource_resv(oresresv_arr[i], nsinfo, nqinfo)) == NULL) {
 			data->error = 1;
 			free_schd_error(err);
 			return;
 		}
 	}
-
 	free_schd_error(err);
 }
 
@@ -493,8 +424,7 @@ alloc_tdata_dup_nodes(resource_resv **oresresv_arr, resource_resv **nresresv_arr
  *
  */
 resource_resv **
-dup_resource_resv_array(resource_resv **oresresv_arr,
-	server_info *nsinfo, queue_info *nqinfo)
+dup_resource_resv_array(resource_resv **oresresv_arr, server_info *nsinfo, queue_info *nqinfo)
 {
 	resource_resv **nresresv_arr;
 	int i, j;
@@ -590,28 +520,34 @@ dup_resource_resv_array(resource_resv **oresresv_arr,
  *
  */
 resource_resv *
-dup_resource_resv(resource_resv *oresresv, server_info *nsinfo, queue_info *nqinfo, schd_error *err)
+dup_resource_resv(resource_resv *oresresv, server_info *nsinfo, queue_info *nqinfo, const std::string& rname)
 {
 	resource_resv *nresresv;
+	schd_error *err;
 
-	if (oresresv == NULL || nsinfo == NULL || err == NULL)
+	if (oresresv == NULL || nsinfo == NULL)
 		return NULL;
 
-	clear_schd_error(err);
+
+	err = new_schd_error();
+	if (err == NULL)
+		return NULL;
 
 	if (!is_resource_resv_valid(oresresv, err)) {
 		schdlogerr(PBSEVENT_DEBUG2, PBS_EVENTCLASS_SCHED, LOG_DEBUG, oresresv->name, "Can't dup resresv", err);
 		return NULL;
 	}
 
-	nresresv = new_resource_resv();
+	if (rname.empty())
+		nresresv = new resource_resv(oresresv->name.c_str());
+	else
+		nresresv = new resource_resv(rname.c_str());
 
 	if (nresresv == NULL)
 		return NULL;
 
 	nresresv->server = nsinfo;
 
-	nresresv->name = string_dup(oresresv->name);
 	nresresv->user = string_dup(oresresv->user);
 	nresresv->group = string_dup(oresresv->group);
 	nresresv->project = string_dup(oresresv->project);
@@ -686,7 +622,7 @@ dup_resource_resv(resource_resv *oresresv, server_info *nsinfo, queue_info *nqin
 		nresresv->nspec_arr = dup_nspecs(oresresv->nspec_arr, nsinfo->nodes, NULL);
 	}
 	else  { /* error */
-		free_resource_resv(nresresv);
+		delete nresresv;
 		return NULL;
 	}
 #ifdef NAS /* localmod 034 */
@@ -695,7 +631,7 @@ dup_resource_resv(resource_resv *oresresv, server_info *nsinfo, queue_info *nqin
 
 	if (!is_resource_resv_valid(nresresv, err)) {
 		schdlogerr(PBSEVENT_DEBUG2, PBS_EVENTCLASS_SCHED, LOG_DEBUG, oresresv->name, "Failed to dup resresv", err);
-		free_resource_resv(nresresv);
+		delete nresresv;
 		return NULL;
 	}
 
@@ -715,19 +651,24 @@ dup_resource_resv(resource_resv *oresresv, server_info *nsinfo, queue_info *nqin
  *
  */
 resource_resv *
-find_resource_resv(resource_resv **resresv_arr, char *name)
+find_resource_resv(resource_resv **resresv_arr, const std::string& name)
 {
 	int i;
-	if (resresv_arr == NULL || name == NULL)
+	if (resresv_arr == NULL)
 		return NULL;
 
-	for (i = 0; resresv_arr[i] != NULL && strcmp(resresv_arr[i]->name, name);i++)
+	for (i = 0; resresv_arr[i] != NULL && resresv_arr[i]->name != name;i++)
 		;
 
 	return resresv_arr[i];
 }
 
-/**
+resource_resv *
+find_resource_resv(resource_resv **resresv_arr, const char *name) {
+	return find_resource_resv(resresv_arr, std::string(name));
+}
+
+	/**
  * @brief
  * 		find a resource_resv by index in all_resresv array or by unique numeric rank
  *
@@ -740,8 +681,7 @@ find_resource_resv(resource_resv **resresv_arr, char *name)
  * @retval NULL	: if not found or on error
  *
  */
-resource_resv *
-find_resource_resv_by_indrank(resource_resv **resresv_arr, int index, int rank)
+	resource_resv *find_resource_resv_by_indrank(resource_resv **resresv_arr, int index, int rank)
 {
 	int i;
 	if (resresv_arr == NULL)
@@ -771,14 +711,14 @@ find_resource_resv_by_indrank(resource_resv **resresv_arr, int index, int rank)
  *
  */
 resource_resv *
-find_resource_resv_by_time(resource_resv **resresv_arr, char *name, time_t start_time)
+find_resource_resv_by_time(resource_resv **resresv_arr, const std::string& name, time_t start_time)
 {
 	int i;
-	if (resresv_arr == NULL || name == NULL)
+	if (resresv_arr == NULL)
 		return NULL;
 
 	for (i = 0; resresv_arr[i] != NULL;i++) {
-		if ((strcmp(resresv_arr[i]->name, name) == 0) && (resresv_arr[i]->start == start_time))
+		if ((resresv_arr[i]->name == name) && (resresv_arr[i]->start == start_time))
 			break;
 	}
 
@@ -832,20 +772,17 @@ cmp_job_arrays(resource_resv *resresv, void *arg)
 		return 0;
 
 	/* if one is not a subjob = no match */
-	if (resresv->job->array_id == NULL || argresv->job->array_id== NULL)
+	if (resresv->job->array_id.empty() || argresv->job->array_id.empty())
 		return 0;
 
-	if (strcmp(resresv->job->array_id, argresv->job->array_id)== 0)
+	if (resresv->job->array_id == argresv->job->array_id)
 		return 1;
 
 	return 0;
 }
 
-/**
+/** 
  * @brief
- *		is_resource_resv_valid - do simple validity checks for a resource resv
- *
- *
  *	@param[in] resresv - the resource_resv to do check
  *	@param[out] err - error struct to return why resource_resv is invalid
  *
@@ -877,7 +814,7 @@ is_resource_resv_valid(resource_resv *resresv, schd_error *err)
 		return 0;
 	}
 
-	if (resresv->name == NULL) {
+	if (resresv->name.empty()) {
 		set_schd_error_codes(err, NEVER_RUN, ERR_SPECIAL);
 		set_schd_error_arg(err, SPECMSG, "No Name");
 		return 0;
@@ -1784,7 +1721,7 @@ update_resresv_on_end(resource_resv *resresv, const char *job_state)
 							}
 						}
 						else
-							log_eventf(PBSEVENT_DEBUG, PBS_EVENTCLASS_SERVER, LOG_DEBUG, resresv->name,
+							log_eventf(PBSEVENT_DEBUG, PBS_EVENTCLASS_SERVER, LOG_DEBUG, resresv->name.c_str(),
 								"Can't find occurrence of standing reservation at time %ld", next_occr_time);
 					}
 				}
@@ -1814,7 +1751,7 @@ update_resresv_on_end(resource_resv *resresv, const char *job_state)
  */
 resource_resv **
 resource_resv_filter(resource_resv **resresv_arr, int size,
-	int (*filter_func)(resource_resv*, void*), void *arg, int flags)
+	int (*filter_func)(resource_resv*, const void*), const void *arg, int flags)
 {
 	resource_resv **new_resresvs = NULL;			/* new array of jobs */
 	resource_resv **tmp;
@@ -2505,7 +2442,7 @@ create_select_from_nspec(nspec **nspec_array)
 		 */
 		if (nspec_array[i]->resreq != NULL) {
 			if (nspec_array[i]->ninfo != NULL) {
-				snprintf(buf, sizeof(buf), "1:vnode=%s", nspec_array[i]->ninfo->name);
+				snprintf(buf, sizeof(buf), "1:vnode=%s", nspec_array[i]->ninfo->name.c_str());
 				if (pbs_strcat(&select_spec, &selsize, buf) == NULL) {
 					if (selsize > 0)
 						free(select_spec);

@@ -146,48 +146,48 @@ int copy_server_arrays(server_info *nsinfo, server_info *osinfo);
  *      check_exit_job - function used by job_filter to filter out
  *                       jobs not in the exiting state
  */
-int check_exit_job(resource_resv *job, void *arg);
+int check_exit_job(resource_resv *job, const void *arg);
 
 /*
  *      check_run_resv - function used by resv_filter to filter out
  *                       non-running reservations
  */
-int check_run_resv(resource_resv *resv, void *arg);
+int check_run_resv(resource_resv *resv, const void *arg);
 
 /*
  *
  *	check_susp_job - function used by job_filter to filter out jobs
  *			   which are suspended
  */
-int check_susp_job(resource_resv *job, void *arg);
+int check_susp_job(resource_resv *job, const void *arg);
 
 /*
  *
  *	check_job_running - function used by job_filter to filter out
  *			   jobs that are running
  */
-int check_job_running(resource_resv *job, void *arg);
+int check_job_running(resource_resv *job, const void *arg);
 
 /*
  *
  *	check_running_job_in_reservation - function used by job_filter to filter out
  *			   jobs that are in a reservation
  */
-int check_running_job_in_reservation(resource_resv *job, void *arg);
+int check_running_job_in_reservation(resource_resv *job, const void *arg);
 
 /*
  *
  *	check_running_job_not_in_reservation - function used by job_filter to filter out
  *			   jobs that are not in a reservation
  */
-int check_running_job_not_in_reservation(resource_resv *job, void *arg);
+int check_running_job_not_in_reservation(resource_resv *job, const void *arg);
 
 /*
  *
  *      check_resv_running_on_node - function used by resv_filter to filter out
  *				running reservations
  */
-int check_resv_running_on_node(resource_resv *resv, void *arg);
+int check_resv_running_on_node(resource_resv *resv, const void *arg);
 
 /*
  *      dup_server - duplicate a server_info struct
@@ -309,7 +309,7 @@ counts *counts_max(counts *cmax, counts *ncounts);
  *      check_run_job - function used by resource_resv_filter to filter out
  *                      non-running jobs.
  */
-int check_run_job(resource_resv *job, void *arg);
+int check_run_job(resource_resv *job, const void *arg);
 
 /*
  *      update_universe_on_end - update a pbs universe when a job/resv ends
@@ -484,5 +484,8 @@ int compare_resource_avail(schd_resource *r1, schd_resource *r2);
 node_info **dup_unordered_nodes(node_info **old_unordered_nodes, node_info **nnodes);
 
 void clear_server_info_for_query(server_info *sinfo);
+<<<<<<< HEAD
 
+=======
+>>>>>>> C++ refactoring
 #endif	/* _SERVER_INFO_H */

@@ -652,7 +652,11 @@ query_jobs(status *policy, int pbs_sd, queue_info *qinfo, resource_resv **pjobs,
 		long starve_num;
 		resource_resv *job;
 
-		job = find_resource_resv(resresv_arr, cur_job->name);
+		auto found = qinfo->server->jobs_umap.find(cur_job->name);
+		if (found == qinfo->server->jobs_umap.end())
+			job = NULL;
+		else
+			job = found->second;
 
 		if ((resresv = query_job(cur_job, sinfo, job, err)) == NULL) {
 			free_schd_error(err);
@@ -676,7 +680,7 @@ query_jobs(status *policy, int pbs_sd, queue_info *qinfo, resource_resv **pjobs,
 				i--;
 			}
 
-			free_resource_resv(resresv);
+			delete resresv;
 			continue;
 		}
 
@@ -684,16 +688,21 @@ query_jobs(status *policy, int pbs_sd, queue_info *qinfo, resource_resv **pjobs,
 		if (resresv->job->is_subjob && !resresv->job->is_running && !resresv->job->is_exiting &&
 			!resresv->job->is_suspended && !resresv->job->is_provisioning) {
 			log_event(PBSEVENT_SCHED, PBS_EVENTCLASS_RESV, LOG_DEBUG,
-				resresv->name, "Subjob found in undesirable state, ignoring this job");
+				resresv->name.c_str(), "Subjob found in undesirable state, ignoring this job");
 			if (job != NULL) {
 				remove_ptr_from_array(resresv_arr, job);
 				i--;
 			}
 
-			free_resource_resv(resresv);
+			delete resresv;
 			continue;
 		}
 
+		if (job != NULL && job->job->queue != qinfo) { // job has been moved from one queue to another
+			remove_ptr_from_array(job->job->queue->jobs, job);
+			job_state_count_add(&job->job->queue->sc, job, -1);
+			job = NULL;
+		}
 		resresv->job->queue = qinfo;
 #ifdef NAS /* localmod 040 */
 		/* we modify nodect to be the same value for all jobs in queues that are
@@ -829,6 +838,7 @@ query_jobs(status *policy, int pbs_sd, queue_info *qinfo, resource_resv **pjobs,
 		if (resresv != job) {
 			resresv_arr[i++] = resresv;
 			resresv_arr[i] = NULL;
+			qinfo->server->jobs_umap[resresv->name] = resresv;
 		}
 	}
 	free_schd_error(err);
@@ -860,15 +870,14 @@ query_job(struct batch_status *job, server_info *sinfo, resource_resv *prev_job,
 	resource_req *resreq;		/* resource_req list for resources requested  */
 
 	if (prev_job == NULL) {
-		if ((resresv = new_resource_resv()) == NULL)
-			return NULL;
 
-		if ((resresv->job = new_job_info()) ==NULL) {
-			free_resource_resv(resresv);
+		resresv = new resource_resv(job->name);
+
+		if ((resresv->job = new_job_info()) == NULL) {
+			delete resresv;
 			return NULL;
 		}
 
-		resresv->name = string_dup(job->name);
 		resresv->rank = get_sched_rank();
 		resresv->server = sinfo;
 
@@ -882,8 +891,9 @@ query_job(struct batch_status *job, server_info *sinfo, resource_resv *prev_job,
 	 	* <numeric>[<numeric>].<alpha> in the case of job arrays, any other
 	 	* form is considered malformed
 	 	*/
-		resresv->job->job_id = strtol(resresv->name, &endp, 10);
-		if ((*endp != '.') && (*endp != '[')) {
+		size_t sz;
+		resresv->job->job_id = stol(resresv->name, &sz);
+		if ((resresv->name[sz] != '.') && (resresv->name[sz] != '[')) {
 			set_schd_error_codes(err, NEVER_RUN, ERR_SPECIAL);
 			set_schd_error_arg(err, SPECMSG, "Malformed job identifier");
 			resresv->is_invalid = 1;
@@ -949,7 +959,7 @@ query_job(struct batch_status *job, server_info *sinfo, resource_resv *prev_job,
 		else if (!strcmp(attrp->name, ATTR_server_inst_id)) {
 			resresv->job->svr_inst_id = string_dup(attrp->value);
 			if (resresv->job->svr_inst_id == NULL) {
-				free_resource_resv(resresv);
+				delete resresv;
 				return NULL;
 			}
 		} else if (!strcmp(attrp->name, ATTR_etime)) { /* eligible time */
@@ -1082,14 +1092,13 @@ query_job(struct batch_status *job, server_info *sinfo, resource_resv *prev_job,
 					/* Anything in the diff are requeued subjobs */
 					for (int cur = range_next_value(diff, -1); cur >= 0; cur = range_next_value(diff, cur)) {
 						resource_resv *sj;
-						char *sj_name;
+						std::string sj_name;
 						sj_name = create_subjob_name(resresv->name, cur);
 						sj = find_resource_resv(qinfo->jobs, sj_name);
 						if (sj != NULL) {
 							remove_ptr_from_array(qinfo->jobs, sj);
-							free_resource_resv(sj);
+							delete sj;
 						}
-						free(sj_name);
 					}
 					free_range_list(diff);
 				}
@@ -1109,7 +1118,7 @@ query_job(struct batch_status *job, server_info *sinfo, resource_resv *prev_job,
 		} else if (!strcmp(attrp->name, ATTR_l)) { /* resources requested*/
 			resreq = find_alloc_resource_req_by_str(resresv->resreq, attrp->resource);
 			if (resreq == NULL) {
-				free_resource_resv(resresv);
+				delete resresv;
 				return NULL;
 			}
 
@@ -1222,10 +1231,7 @@ new_job_info()
 {
 	job_info *jinfo;
 
-	if ((jinfo = static_cast<job_info *>(malloc(sizeof(job_info)))) == NULL) {
-		log_err(errno, __func__, MEM_ERR_MSG);
-		return NULL;
-	}
+	jinfo = new job_info;
 
 	jinfo->svr_inst_id = NULL;
 	jinfo->is_queued = 0;
@@ -1241,8 +1247,8 @@ new_job_info()
 	jinfo->is_expired = 0;
 	jinfo->is_finished = 0;
 	jinfo->is_checkpointed = 0;
-	jinfo->accrue_type=0;
-	jinfo->eligible_time=0;
+	jinfo->accrue_type = 0;
+	jinfo->eligible_time = 0;
 	jinfo->can_not_preempt = 0;
 	jinfo->topjob_ineligible = 0;
 
@@ -1273,7 +1279,7 @@ new_job_info()
 	jinfo->resused = NULL;
 	jinfo->ginfo = NULL;
 
-	jinfo->array_id = NULL;
+	jinfo->array_id = "";
 	jinfo->array_index = UNSPECIFIED;
 	jinfo->parent_job = NULL;
 	jinfo->queued_subjobs = NULL;
@@ -1320,6 +1326,9 @@ new_job_info()
 void
 free_job_info(job_info *jinfo)
 {
+	if (jinfo == NULL)
+		return;
+	
 	if (jinfo->comment != NULL)
 		free(jinfo->comment);
 
@@ -1329,14 +1338,11 @@ free_job_info(job_info *jinfo)
 	if (jinfo->est_execvnode != NULL)
 		free(jinfo->est_execvnode);
 
-	if (jinfo->array_id != NULL)
-		free(jinfo->array_id);
-
 	if (jinfo->queued_subjobs != NULL)
 		free_range_list(jinfo->queued_subjobs);
 
 	if (jinfo->depend_job_str != NULL)
-		free (jinfo->depend_job_str);
+		free(jinfo->depend_job_str);
 
 	if (jinfo->dependent_jobs != NULL)
 		free(jinfo->dependent_jobs);
@@ -1364,9 +1370,8 @@ free_job_info(job_info *jinfo)
 	if (jinfo->schedsel)
 		free(jinfo->schedsel);
 #endif
-	free(jinfo);
+	delete jinfo;
 }
-
 
 /**
  * @brief
@@ -1570,7 +1575,7 @@ update_job_attr(int pbs_sd, resource_resv *resresv, const char *attr_name,
 
 	if (pattr != NULL && (flags & UPDATE_NOW)) {
 		int rc;
-		rc = send_attr_updates(get_svr_inst_fd(pbs_sd, resresv->job->svr_inst_id), resresv->name, pattr);
+		rc = send_attr_updates(get_svr_inst_fd(pbs_sd, resresv->job->svr_inst_id), resresv->name.c_str(), pattr);
 		free_attrl_list(pattr);
 		return rc;
 	}
@@ -1614,7 +1619,7 @@ int send_job_updates(int pbs_sd, resource_resv *job)
 			return 0;
 	}
 
-	rc = send_attr_updates(get_svr_inst_fd(pbs_sd, job->job->svr_inst_id), job->name, job->job->attr_updates);
+	rc = send_attr_updates(get_svr_inst_fd(pbs_sd, job->job->svr_inst_id), job->name.c_str(), job->job->attr_updates);
 
 	free_attrl_list(job->job->attr_updates);
 	job->job->attr_updates = NULL;
@@ -2594,7 +2599,7 @@ dup_job_info(job_info *ojinfo, queue_info *nqinfo, server_info *nsinfo)
 	njinfo->resused = dup_resource_req_list(ojinfo->resused);
 
 	njinfo->array_index = ojinfo->array_index;
-	njinfo->array_id = string_dup(ojinfo->array_id);
+	njinfo->array_id = ojinfo->array_id;
 	njinfo->queued_subjobs = dup_range_list(ojinfo->queued_subjobs);
 	njinfo->max_run_subjobs = ojinfo->max_run_subjobs;
 
@@ -2650,7 +2655,7 @@ dup_job_info(job_info *ojinfo, queue_info *nqinfo, server_info *nsinfo)
  * @return	0	: If job dos not fall into any of the preempt_targets
  */
 int
-preempt_job_set_filter(resource_resv *job, void *arg)
+preempt_job_set_filter(resource_resv *job, const void *arg)
 {
 	resource_req *req;
 	char **arglist;
@@ -2830,7 +2835,7 @@ find_and_preempt_jobs(status *policy, int pbs_sd, resource_resv *hjob, server_in
 		for (i = 0; i < no_of_jobs; i++) {
 			job = find_resource_resv_by_indrank(sinfo->running_jobs, -1, jobs[i]);
 			if (job != NULL) {
-				if ((preempt_jobs_list[i] = strdup(job->name)) == NULL) {
+				if ((preempt_jobs_list[i] = strdup(job->name.c_str())) == NULL) {
 					log_err(errno, __func__, MEM_ERR_MSG);
 					free_string_array(preempt_jobs_list);
 					free(preempt_jobs_list);
@@ -2859,7 +2864,7 @@ find_and_preempt_jobs(status *policy, int pbs_sd, resource_resv *hjob, server_in
 			if (preempt_jobs_reply[i].order[0] == '0') {
 				done = 0;
 				fail_list[fail_count++] = job->rank;
-				log_event(PBSEVENT_SCHED, PBS_EVENTCLASS_JOB, LOG_INFO, job->name, "Job failed to be preempted");
+				log_event(PBSEVENT_SCHED, PBS_EVENTCLASS_JOB, LOG_INFO, job->name.c_str(), "Job failed to be preempted");
 			}
 			else {
 				int update_accrue_type = 1;
@@ -2872,7 +2877,7 @@ find_and_preempt_jobs(status *policy, int pbs_sd, resource_resv *hjob, server_in
 					update_universe_on_end(policy, job, "S", NO_FLAGS);
 					job->job->is_susp_sched = 1;
 					log_event(PBSEVENT_SCHED, PBS_EVENTCLASS_JOB, LOG_INFO,
-						job->name, "Job preempted by suspension");
+						job->name.c_str(), "Job preempted by suspension");
 					/* Since suspended job is not part of its current equivalence class,
 					 * break the job's association with its equivalence class.
 					 */
@@ -2881,7 +2886,7 @@ find_and_preempt_jobs(status *policy, int pbs_sd, resource_resv *hjob, server_in
 					job->job->is_checkpointed = 1;
 					update_universe_on_end(policy, job, "Q", NO_FLAGS);
 					log_event(PBSEVENT_SCHED, PBS_EVENTCLASS_JOB, LOG_INFO,
-						job->name, "Job preempted by checkpointing");
+						job->name.c_str(), "Job preempted by checkpointing");
 					/* Since checkpointed job is not part of its current equivalence class,
 					 * break the job's association with its equivalence class.
 					 */
@@ -2889,11 +2894,11 @@ find_and_preempt_jobs(status *policy, int pbs_sd, resource_resv *hjob, server_in
 				} else if (preempt_jobs_reply[i].order[0] == 'Q') {
 					update_universe_on_end(policy, job, "Q", NO_FLAGS);
 					log_event(PBSEVENT_SCHED, PBS_EVENTCLASS_JOB, LOG_INFO,
-						job->name, "Job preempted by requeuing");
+						job->name.c_str(), "Job preempted by requeuing");
 				} else {
 					update_universe_on_end(policy, job, "X", NO_FLAGS);
 					log_event(PBSEVENT_SCHED, PBS_EVENTCLASS_JOB, LOG_INFO,
-						job->name, "Job preempted by deletion");
+						job->name.c_str(), "Job preempted by deletion");
 					job->can_not_run = 1;
 					update_accrue_type = 0;
 				}
@@ -2926,7 +2931,7 @@ find_and_preempt_jobs(status *policy, int pbs_sd, resource_resv *hjob, server_in
 				free(fail_list);
 				return -1;
 			}
-			log_event(PBSEVENT_DEBUG, PBS_EVENTCLASS_JOB, LOG_DEBUG, hjob->name,
+			log_event(PBSEVENT_DEBUG, PBS_EVENTCLASS_JOB, LOG_DEBUG, hjob->name.c_str(),
 				"Preempted work didn't run job - rerun it");
 			for (i = 0; i < preempted_count; i++) {
 				job = find_resource_resv_by_indrank(sinfo->jobs, -1, preempted_list[i]);
@@ -2943,7 +2948,7 @@ find_and_preempt_jobs(status *policy, int pbs_sd, resource_resv *hjob, server_in
 	}
 	else if (num_tries == MAX_PREEMPT_RETRIES) {
 		rc = 0;
-		log_event(PBSEVENT_DEBUG, PBS_EVENTCLASS_JOB, LOG_DEBUG, hjob->name,
+		log_event(PBSEVENT_DEBUG, PBS_EVENTCLASS_JOB, LOG_DEBUG, hjob->name.c_str(),
 			"Maximum number of preemption tries exceeded - cannot run job");
 	}
 	else
@@ -3045,7 +3050,7 @@ find_jobs_to_preempt(status *policy, resource_resv *hjob, server_info *sinfo, in
 	 */
 	if (conf.max_preempt_attempts != SCHD_INFINITY) {
 		if (cstat.preempt_attempts >= conf.max_preempt_attempts) {
-			log_event(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_DEBUG, hjob->name,
+			log_event(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_DEBUG, hjob->name.c_str(),
 				"Not attempting to preempt: over max cycle preempt limit");
 			return NULL;
 		}
@@ -3054,7 +3059,7 @@ find_jobs_to_preempt(status *policy, resource_resv *hjob, server_info *sinfo, in
 	}
 
 
-	log_event(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_DEBUG, hjob->name,
+	log_event(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_DEBUG, hjob->name.c_str(),
 		"Employing preemption to try and run high priority job.");
 
 	/* Let's get all the reasons the job won't run now.
@@ -3097,7 +3102,7 @@ find_jobs_to_preempt(status *policy, resource_resv *hjob, server_info *sinfo, in
 			cant_preempt = 1;
 		if (cant_preempt) {
 			translate_fail_code(cur_err, NULL, log_buf);
-			log_eventf(PBSEVENT_DEBUG, PBS_EVENTCLASS_JOB, LOG_DEBUG, hjob->name,
+			log_eventf(PBSEVENT_DEBUG, PBS_EVENTCLASS_JOB, LOG_DEBUG, hjob->name.c_str(),
 				"Preempt: Can not preempt to run job: %s", log_buf);
 			free_schd_error_list(full_err);
 			return NULL;
@@ -3118,7 +3123,7 @@ find_jobs_to_preempt(status *policy, resource_resv *hjob, server_info *sinfo, in
 			preempt_targets_list = break_comma_list(preempt_targets_req->res_str);
 			retval = check_preempt_targets_for_none(preempt_targets_list);
 			if (retval == PREEMPT_NONE) {
-				log_event(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_DEBUG, hjob->name,
+				log_event(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_DEBUG, hjob->name.c_str(),
 					"No preemption set specified for the job: Job will not preempt");
 				free_schd_error_list(full_err);
 				free(pjobs);
@@ -3153,11 +3158,11 @@ find_jobs_to_preempt(status *policy, resource_resv *hjob, server_info *sinfo, in
 		rjobs = prjobs;
 		rjobs_count = count_array(prjobs);
 		if (rjobs_count > 0) {
-			log_eventf(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_DEBUG, nhjob->name,
+			log_eventf(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_DEBUG, nhjob->name.c_str(),
 				"Limited running jobs used for preemption from %d to %d", nsinfo->sc.running, rjobs_count);
 		}
 		else {
-			log_eventf(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_DEBUG, nhjob->name,
+			log_eventf(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_DEBUG, nhjob->name.c_str(),
 				"Limited running jobs used for preemption from %d to 0: No jobs to preempt", nsinfo->sc.running);
 			pjobs_list = NULL;
 			goto cleanup;
@@ -3193,7 +3198,7 @@ find_jobs_to_preempt(status *policy, resource_resv *hjob, server_info *sinfo, in
 
 	rjobs_subset = filter_preemptable_jobs(rjobs, nhjob, err);
 	if (rjobs_subset == NULL) {
-		log_event(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_INFO, nhjob->name, "Found no preemptable candidates");
+		log_event(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_INFO, nhjob->name.c_str(), "Found no preemptable candidates");
 		pjobs_list = NULL;
 		goto cleanup;
 	}
@@ -3211,7 +3216,7 @@ find_jobs_to_preempt(status *policy, resource_resv *hjob, server_info *sinfo, in
 			goto cleanup;
 		}
 		pjob = rjobs_subset[indexfound];
-		log_event(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_DEBUG, pjob->name,
+		log_event(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_DEBUG, pjob->name.c_str(),
 			"Simulation: preempting job");
 
 		po = schd_get_preempt_order(pjob);
@@ -3238,10 +3243,10 @@ find_jobs_to_preempt(status *policy, resource_resv *hjob, server_info *sinfo, in
 		 */
 		if (dont_preempt_job || pjob->job->preempt > nhjob->job->preempt) {
 			remove_resresv_from_array(rjobs_subset, pjob);
-			log_event(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_INFO, pjob->name,
+			log_event(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_INFO, pjob->name.c_str(),
 				  "Preempting job will escalate its priority or priority of other jobs, not preempting it");
 			if (sim_run_update_resresv(npolicy, pjob, ns_arr, NO_ALLPART) != 1) {
-				log_event(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_INFO, nhjob->name,
+				log_event(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_INFO, nhjob->name.c_str(),
 					  "Trouble finding preemptable candidates");
 				pjobs_list = NULL;
 				goto cleanup;
@@ -3287,7 +3292,7 @@ find_jobs_to_preempt(status *policy, resource_resv *hjob, server_info *sinfo, in
 			}
 
 
-			log_event(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_DEBUG, nhjob->name,
+			log_event(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_DEBUG, nhjob->name.c_str(),
 				"Simulation: Preempted enough work to run job");
 			rc = sim_run_update_resresv(npolicy, nhjob, ns_arr, NO_ALLPART);
 			break;
@@ -3319,7 +3324,7 @@ find_jobs_to_preempt(status *policy, resource_resv *hjob, server_info *sinfo, in
 			free(rjobs_subset);
 			rjobs_subset = filter_preemptable_jobs(rjobs, nhjob, err);
 			if (rjobs_subset == NULL) {
-				log_event(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_INFO, nhjob->name, "Found no preemptable candidates");
+				log_event(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_INFO, nhjob->name.c_str(), "Found no preemptable candidates");
 				pjobs_list = NULL;
 				goto cleanup;
 			}
@@ -3328,7 +3333,7 @@ find_jobs_to_preempt(status *policy, resource_resv *hjob, server_info *sinfo, in
 		}
 
 		translate_fail_code(err, NULL, log_buf);
-		log_eventf(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_DEBUG, nhjob->name,
+		log_eventf(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_DEBUG, nhjob->name.c_str(),
 			"Simulation: not enough work preempted: %s", log_buf);
 	}
 
@@ -3341,7 +3346,7 @@ find_jobs_to_preempt(status *policy, resource_resv *hjob, server_info *sinfo, in
 	 */
 	if (prev_prio > nhjob->job->preempt) {
 		rc = 0;
-		log_event(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_DEBUG, nhjob->name,
+		log_event(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_DEBUG, nhjob->name.c_str(),
 			"Job not run because it would immediately be preemptable.");
 	}
 
@@ -3377,7 +3382,7 @@ find_jobs_to_preempt(status *policy, resource_resv *hjob, server_info *sinfo, in
 
 			if (remove_job) {
 				log_event(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_DEBUG,
-					pjobs[j]->name, "Simulation: preemption of job not needed.");
+					pjobs[j]->name.c_str(), "Simulation: preemption of job not needed.");
 				remove_resresv_from_array(pjobs, pjobs[j]);
 
 			} else {
@@ -3389,7 +3394,7 @@ find_jobs_to_preempt(status *policy, resource_resv *hjob, server_info *sinfo, in
 		pjobs_list[i] = 0;
 		/* i == 0 means we removed all the jobs: Should not happen */
 		if (i == 0) {
-			log_event(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_DEBUG, nhjob->name,
+			log_event(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_DEBUG, nhjob->name.c_str(),
 				"Simulation Error: All jobs removed from preemption list");
 		} else
 			*no_of_jobs = i;
@@ -3658,7 +3663,7 @@ set_preempt_prio(resource_resv *job, queue_info *qinfo, server_info *sinfo)
 
 	if (sinfo->qrun_job != NULL) {
 		if (job == sinfo->qrun_job ||
-		    (jinfo->is_subjob && (strcmp(jinfo->array_id, sinfo->qrun_job->name) == 0)))
+		    (jinfo->is_subjob && jinfo->array_id == sinfo->qrun_job->name))
 			jinfo->preempt_status |= PREEMPT_TO_BIT(PREEMPT_QRUN);
 	}
 
@@ -3675,7 +3680,7 @@ set_preempt_prio(resource_resv *job, queue_info *qinfo, server_info *sinfo)
 	if ((rc = check_soft_limits(sinfo, qinfo, job)) != 0) {
 		if ((rc & PREEMPT_TO_BIT(PREEMPT_ERR)) != 0) {
 			job->can_not_run = 1;
-			log_event(PBSEVENT_ERROR, PBS_EVENTCLASS_JOB, LOG_ERR, job->name,
+			log_event(PBSEVENT_ERROR, PBS_EVENTCLASS_JOB, LOG_ERR, job->name.c_str(),
 				"job marked as not runnable due to check_soft_limits internal error");
 			return;
 		}
@@ -3720,27 +3725,17 @@ set_preempt_prio(resource_resv *job, queue_info *qinfo, server_info *sinfo)
  *
  * @return	created subjob name
  */
-char *
-create_subjob_name(char *array_id, int index)
+std::string
+create_subjob_name(const std::string &array_id, int index)
 {
-	int spn;
-	char *rest;
-	char tmpid[128];		/* hold job id and leading '[' */
-	char buf[1024];		/* buffer to hold new subjob identifer */
+	size_t spn;
+	std::string str = array_id;
 
-	spn = strcspn(array_id, "[");
-	if (spn == 0)
-		return NULL;
+	spn = str.find_first_of('[');
+	if (spn == std::string::npos || spn == 0)
+		return std::string("");
 
-	rest = array_id + spn + 1;
-
-	if (*rest != ']')
-		return NULL;
-
-	pbs_strncpy(tmpid, array_id, spn+2);
-	sprintf(buf, "%s%d%s", tmpid, index, rest);
-
-	return string_dup(buf);
+	return str.insert(spn + 1, std::to_string(index));
 }
 
 /**
@@ -3758,7 +3753,7 @@ create_subjob_name(char *array_id, int index)
  *
  */
 resource_resv *
-create_subjob_from_array(resource_resv *array, int index, char *subjob_name)
+create_subjob_from_array(resource_resv *array, int index, const std::string& subjob_name)
 {
 	resource_resv *subjob;	/* job_info structure for new subjob */
 	range *tmp;			/* a tmp ptr to hold the queued_indices ptr */
@@ -3774,11 +3769,12 @@ create_subjob_from_array(resource_resv *array, int index, char *subjob_name)
 	if (err == NULL)
 		return NULL;
 
+	subjob = dup_resource_resv(array, array->server, array->job->queue, subjob_name);
+
 	/* so we don't dup the queued_indices for the subjob */
 	tmp = array->job->queued_subjobs;
 	array->job->queued_subjobs = NULL;
 
-	subjob = dup_resource_resv(array, array->server, array->job->queue, err);
 
 	/* make a copy of dependent jobs */
 	subjob->job->depend_job_str = string_dup(array->job->depend_job_str);
@@ -3797,13 +3793,7 @@ create_subjob_from_array(resource_resv *array, int index, char *subjob_name)
 	subjob->job->is_queued = 1;
 	subjob->job->is_subjob = 1;
 	subjob->job->array_index = index;
-	subjob->job->array_id = string_dup(array->name);
-
-	free(subjob->name);
-	if (subjob_name != NULL)
-		subjob->name = subjob_name;
-	else
-		subjob->name = create_subjob_name(array->name, index);
+	subjob->job->array_id = array->name;
 
 	subjob->rank =  get_sched_rank();
 
@@ -3963,11 +3953,10 @@ modify_job_array_for_qrun(resource_resv *qrun_job, char *jobid)
  *
  */
 resource_resv *
-queue_subjob(resource_resv *array, server_info *sinfo,
-	queue_info *qinfo)
+queue_subjob(resource_resv *array, server_info *sinfo, queue_info *qinfo)
 {
 	int subjob_index;
-	char *subjob_name;
+	std::string subjob_name;
 	resource_resv *rresv = NULL;
 	resource_resv **tmparr = NULL;
 
@@ -3980,14 +3969,12 @@ queue_subjob(resource_resv *array, server_info *sinfo,
 	subjob_index = range_next_value(array->job->queued_subjobs, -1);
 	if (subjob_index >= 0) {
 		subjob_name = create_subjob_name(array->name, subjob_index);
-		if (subjob_name != NULL) {
+		if (!subjob_name.empty()) {
 			if ((rresv = find_resource_resv(sinfo->jobs, subjob_name)) != NULL) {
-				free(subjob_name);
 				/* Set tmparr to something so we're not considered an error */
 				tmparr = sinfo->jobs;
 			}
-			else if ((rresv = create_subjob_from_array(array, subjob_index,
-				subjob_name)) != NULL) {
+			else if ((rresv = create_subjob_from_array(array, subjob_index, subjob_name)) != NULL) {
 				/* add_resresv_to_array calls realloc, so we need to treat this call
 				 * as a call to realloc.  Put it into a temp variable to check for NULL
 				 */
@@ -4014,7 +4001,7 @@ queue_subjob(resource_resv *array, server_info *sinfo,
 	}
 
 	if (tmparr == NULL || rresv == NULL) {
-		log_event(PBSEVENT_DEBUG, PBS_EVENTCLASS_JOB, LOG_DEBUG, array->name,
+		log_event(PBSEVENT_DEBUG, PBS_EVENTCLASS_JOB, LOG_DEBUG, array->name.c_str(),
 			"Unable to create new subjob for job array");
 		return NULL;
 	}
@@ -4142,7 +4129,7 @@ formula_evaluate(char *formula, resource_resv *resresv, resource_req *resreq)
 		str = PyUnicode_AsUTF8(obj);
 		if (str != NULL) {
 			if (strlen(str) > 0) { /* exception happened */
-				log_eventf(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_DEBUG, resresv->name,
+				log_eventf(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_DEBUG, resresv->name.c_str(),
 					"Formula evaluation for job had an error.  Zero value will be used: %s", str);
 				ans = 0;
 			}
@@ -4249,7 +4236,7 @@ update_accruetype(int pbs_sd, server_info *sinfo,
 		return;
 	}
 
-	if ((resresv->job->preempt_status & PREEMPT_QUEUE_SERVER_SOFTLIMIT) >0) {
+	if ((resresv->job->preempt_status & PREEMPT_QUEUE_SERVER_SOFTLIMIT) > 0) {
 		make_ineligible(pbs_sd, resresv);
 		return;
 	}
@@ -4508,7 +4495,7 @@ mark_job_starving(resource_resv *sjob, long sch_priority)
 	sjob->job->is_starving = 1;
 	sjob->sch_priority = sch_priority;
 	log_event(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_DEBUG,
-		sjob->name, (sjob->job->is_running ? "Job was starving when it ran" : "Job is starving"));
+		sjob->name.c_str(), (sjob->job->is_running ? "Job was starving when it ran" : "Job is starving"));
 
 	if (conf.dont_preempt_starving)
 		sjob->job->can_not_preempt = 1;
@@ -4563,7 +4550,7 @@ update_estimated_attrs(int pbs_sd, resource_resv *job,
 	}
 	else {
 		aflags = UPDATE_NOW;
-		if (job->job->array_id !=NULL)
+		if (!job->job->array_id.empty())
 			array = find_resource_resv(job->server->jobs, job->job->array_id);
 	}
 
@@ -4939,7 +4926,7 @@ extend_soft_walltime(resource_resv *resresv, time_t server_time)
  * @retval - 0 if job is not valid for preemption
  * @retval - 1 if the job is valid for preemption
  */
-static int cull_preemptible_jobs(resource_resv *job, void *arg)
+static int cull_preemptible_jobs(resource_resv *job, const void *arg)
 {
 	struct resresv_filter *inp;
 	int index;
@@ -5425,7 +5412,8 @@ remove_finished_jobs(server_info *sinfo)
 		if (jobs != NULL) {
 			for (j = 0; jobs[j] != NULL; j++) {
 				if (jobs[j]->job->is_finished || jobs[j]->job->is_expired) {
-					free_resource_resv(jobs[j]);
+					sinfo->jobs_umap.erase(jobs[j]->name);
+					delete jobs[j];
 					for (k = j; jobs[k] != NULL; k++)
 						jobs[k] = jobs[k + 1];
 					/* Now that we've removed jobs[j], we need to back j up so we don't advance past the new jobs[j] */

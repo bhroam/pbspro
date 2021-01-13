@@ -49,7 +49,6 @@
  * 	query_node_info()
  * 	new_node_info()
  * 	free_nodes()
- * 	free_node_info()
  * 	set_node_info_state()
  * 	remove_node_state()
  * 	add_node_state()
@@ -174,12 +173,10 @@ query_nodes(int pbs_sd, server_info *sinfo)
 	static struct batch_status *prev_nodes;
 	struct batch_status *diff_nodes;
 	struct batch_status *cur_node;	/* used to cycle through nodes */
-	node_info **ninfo_arr;		/* array of nodes for scheduler's use */
+	node_info **ninfo_arr = NULL;		/* array of nodes for scheduler's use */
 	char *err;				/* used with pbs_geterrmsg() */
 	int num_nodes = 0;			/* the number of nodes */
 	int tot_nodes = 0;
-	node_info *ninfo;
-	int node_ind;
 	static struct attrl *attrib = NULL;
 	const char *nodeattrs[] = {
 			ATTR_NODE_state,
@@ -244,29 +241,33 @@ query_nodes(int pbs_sd, server_info *sinfo)
 		num_nodes++;
 	}
 
-	/* allocate the largest possible array - if all stated nodes are nnode + current nodes */
-	if ((ninfo_arr = static_cast<node_info **>(realloc(sinfo->nodes, (sinfo->num_nodes + num_nodes + 1) * sizeof(node_info *)))) == NULL) {
-		log_err(errno, __func__, MEM_ERR_MSG);
-		pbs_statfree(nodes);
-		pbs_statfree(prev_nodes);
-		if (diff_nodes != nodes)
-			pbs_statfree(diff_nodes);
-		prev_nodes = NULL;
-		return NULL;
-	}
-	sinfo->nodes = ninfo_arr;
+	if (sinfo->nodes == NULL) {
+		if ((ninfo_arr = static_cast<node_info **>(malloc(sizeof(node_info *) * 2))) == NULL) {
+			log_err(errno, __func__, MEM_ERR_MSG);
+			pbs_statfree(nodes);
+			pbs_statfree(prev_nodes);
+			if (diff_nodes != nodes)
+				pbs_statfree(diff_nodes);
+			prev_nodes = NULL;
+			return NULL;
+		}
+
+		ninfo_arr[0] = NULL;
+	} else
+		ninfo_arr = sinfo->nodes;
 
 	tot_nodes = sinfo->num_nodes;
-	ninfo_arr[tot_nodes] = NULL;
 
 	for (cur_node = diff_nodes; cur_node != NULL; cur_node = cur_node->next) {
-		ninfo = NULL;
-		for (node_ind = 0; ninfo_arr[node_ind] != NULL && strcmp(ninfo_arr[node_ind]->name, cur_node->name) != 0; node_ind++)
-			;
+		auto found = sinfo->nodes_umap.find(cur_node->name);
+		node_info *ninfo = NULL;
 
+		if (found != sinfo->nodes_umap.end())
+			ninfo = found->second;
+		
 		if (cur_node->attribs != NULL) {
 			/* get node info from the batch_status */
-			if ((ninfo = query_node_info(cur_node, sinfo, ninfo_arr[node_ind])) == NULL) {
+			if ((ninfo = query_node_info(cur_node, sinfo, ninfo)) == NULL) {
 				pbs_statfree(nodes);
 				if (diff_nodes != nodes)
 					pbs_statfree(diff_nodes);
@@ -274,23 +275,21 @@ query_nodes(int pbs_sd, server_info *sinfo)
 			}
 			ninfo->num_jobs = 0;
 			ninfo->num_run_resv = 0;
-		} else
-			ninfo = ninfo_arr[node_ind];
+		} 
 
-		if (node_ind == tot_nodes && cur_node->attribs != NULL && node_in_partition(ninfo, sc_attrs.partition)) {
-			ninfo_arr[tot_nodes++] = ninfo;
-			ninfo_arr[tot_nodes] = NULL;
+		if (found == sinfo->nodes_umap.end() && cur_node->attribs != NULL && node_in_partition(ninfo, sc_attrs.partition)) {
+			ninfo_arr = static_cast<node_info **>(add_ptr_to_array(ninfo_arr, ninfo));
+			sinfo->nodes_umap[cur_node->name] = ninfo;
+			tot_nodes++;
 		} else if (cur_node->attribs == NULL) {
 			/* Node got deleted or moved out of our partition */
-			if (node_ind != tot_nodes) {
-				int k;
-				for(k = node_ind; k < tot_nodes; k++)
-					ninfo_arr[k] = ninfo_arr[k + 1];
-
+			if (found != sinfo->nodes_umap.end()) {
+				remove_ptr_from_array(ninfo_arr, ninfo);
+				sinfo->nodes_umap.erase(found->first);
 				tot_nodes--;
 			}
 
-			free_node_info(ninfo);
+			delete ninfo;
 		}
 	}
 
@@ -299,12 +298,12 @@ query_nodes(int pbs_sd, server_info *sinfo)
 #endif /* localmod 062 */
 	resolve_indirect_resources(ninfo_arr);
 	sinfo->num_nodes = tot_nodes;
+	sinfo->nodes = ninfo_arr;
 
 	if (diff_nodes != nodes)
 		pbs_statfree(diff_nodes);
 	pbs_statfree(prev_nodes);
 	prev_nodes = nodes;
-	// pbs_statfree(nodes);
 	return ninfo_arr;
 }
 
@@ -330,15 +329,8 @@ query_node_info(struct batch_status *node, server_info *sinfo, node_info *ninfo)
 	time_t expiry = 0;
 
 
-	if (ninfo == NULL) { 
-		if ((ninfo = new_node_info()) == NULL)
-			return NULL;
-
-		if ((ninfo->name = string_dup(node->name)) == NULL) {
-			free_node_info(ninfo);
-			return NULL;
-		}
-
+	if (ninfo == NULL) {
+		ninfo = new node_info(node->name);
 		ninfo->rank = get_sched_rank();
 
 		ninfo->server = sinfo;
@@ -360,7 +352,7 @@ query_node_info(struct batch_status *node, server_info *sinfo, node_info *ninfo)
 		else if (!strcmp(attrp->name, ATTR_server_inst_id)) {
 			ninfo->svr_inst_id = string_dup(attrp->value);
 			if (ninfo->svr_inst_id == NULL) {
-				free_node_info(ninfo);
+				delete ninfo;
 				return NULL;
 			}
 		}
@@ -370,7 +362,7 @@ query_node_info(struct batch_status *node, server_info *sinfo, node_info *ninfo)
 			if (ninfo->mom != NULL)
 				free(ninfo->mom);
 			if ((ninfo->mom = string_dup(attrp->value)) == NULL) {
-				free_node_info(ninfo);
+				delete ninfo;
 				return NULL;
 			}
 		}
@@ -412,7 +404,7 @@ query_node_info(struct batch_status *node, server_info *sinfo, node_info *ninfo)
 		} else if (!strcmp(attrp->name, ATTR_NODE_Sharing)) {
 			ninfo->sharing = str_to_vnode_sharing(attrp->value);
 			if (ninfo->sharing == VNS_UNSET) {
-				log_eventf(PBSEVENT_SCHED, PBS_EVENTCLASS_NODE, LOG_INFO, ninfo->name,
+				log_eventf(PBSEVENT_SCHED, PBS_EVENTCLASS_NODE, LOG_INFO, ninfo->name.c_str(),
 					"Unknown sharing type: %s using default shared", attrp->value);
 				ninfo->sharing = VNS_DFLT_SHARED;
 			}
@@ -427,7 +419,7 @@ query_node_info(struct batch_status *node, server_info *sinfo, node_info *ninfo)
 					break;
 				default:
 					log_eventf(PBSEVENT_SCHED, PBS_EVENTCLASS_NODE, LOG_INFO,
-						ninfo->name, "Unknown license type: %c", attrp->value[0]);
+						ninfo->name.c_str(), "Unknown license type: %c", attrp->value[0]);
 			}
 		} else if (!strcmp(attrp->name, ATTR_rescavail)) {
 			if (!strcmp(attrp->resource, ND_RESC_LicSignature)) {
@@ -440,7 +432,7 @@ query_node_info(struct batch_status *node, server_info *sinfo, node_info *ninfo)
 					ninfo->res = res;
 
 				if (set_resource(res, attrp->value, RF_AVAIL) == 0) {
-					free_node_info(ninfo);
+					delete ninfo;
 					ninfo = NULL;
 					break;
 				}
@@ -459,7 +451,7 @@ query_node_info(struct batch_status *node, server_info *sinfo, node_info *ninfo)
 				ninfo->res = res;
 			if (res != NULL) {
 				if (set_resource(res, attrp->value, RF_ASSN) == 0) {
-					free_node_info(ninfo);
+					delete ninfo;
 					ninfo = NULL;
 					break;
 				}
@@ -506,103 +498,86 @@ query_node_info(struct batch_status *node, server_info *sinfo, node_info *ninfo)
 	return ninfo;
 }
 
-/**
- * @brief
- *	new_node_info - allocates a nnode node_info
- *
- * @return	the nnode node_info
- *
- */
-node_info *
-new_node_info()
+node_info::node_info(const char *nname): name(nname)
 {
-	node_info *nnode;
+	this->svr_inst_id = NULL;
+	this->is_down = 0;
+	this->is_free = 0;
+	this->is_offline = 0;
+	this->is_unknown = 0;
+	this->is_exclusive = 0;
+	this->is_job_exclusive = 0;
+	this->is_resv_exclusive = 0;
+	this->is_sharing = 0;
+	this->is_pbsnode = 0;
+	this->is_busy = 0;
+	this->is_job_busy = 0;
+	this->is_stale = 0;
+	this->is_maintenance = 0;
+	this->is_provisioning = 0;
+	this->is_sleeping = 0;
+	this->is_multivnoded = 0;
+	this->has_ghost_job = 0;
 
-	if ((nnode = static_cast<node_info *>(malloc(sizeof(node_info)))) == NULL) {
-		log_err(errno, __func__, MEM_ERR_MSG);
-		return NULL;
-	}
+	this->lic_lock = 0;
 
-	nnode->svr_inst_id = NULL;
-	nnode->is_down = 0;
-	nnode->is_free = 0;
-	nnode->is_offline = 0;
-	nnode->is_unknown = 0;
-	nnode->is_exclusive = 0;
-	nnode->is_job_exclusive = 0;
-	nnode->is_resv_exclusive = 0;
-	nnode->is_sharing = 0;
-	nnode->is_pbsnode = 0;
-	nnode->is_busy = 0;
-	nnode->is_job_busy = 0;
-	nnode->is_stale = 0;
-	nnode->is_maintenance = 0;
-	nnode->is_provisioning = 0;
-	nnode->is_sleeping = 0;
-	nnode->is_multivnoded = 0;
-	nnode->has_ghost_job = 0;
+	this->has_hard_limit = 0;
+	this->no_multinode_jobs = 0;
+	this->resv_enable = 0;
+	this->provision_enable = 0;
+	this->power_provisioning = 0;
 
-	nnode->lic_lock = 0;
+	this->sharing = VNS_DFLT_SHARED;
 
-	nnode->has_hard_limit = 0;
-	nnode->no_multinode_jobs = 0;
-	nnode->resv_enable = 0;
-	nnode->provision_enable = 0;
-	nnode->power_provisioning = 0;
+	this->num_jobs = 0;
+	this->num_run_resv = 0;
+	this->num_susp_jobs = 0;
 
-	nnode->sharing = VNS_DFLT_SHARED;
+	this->priority = 0;
 
-	nnode->num_jobs = 0;
-	nnode->num_run_resv = 0;
-	nnode->num_susp_jobs = 0;
+	this->pcpus = 0;
 
-	nnode->priority = 0;
+	this->rank = 0;
 
-	nnode->pcpus = 0;
+	this->nodesig_ind = -1;
 
-	nnode->rank = 0;
+	this->mom = NULL;
+	this->jobs = NULL;
+	this->resvs = NULL;
+	this->job_arr = NULL;
+	this->run_resvs_arr = NULL;
+	this->res = NULL;
+	this->server = NULL;
+	this->queue_name = NULL;
+	this->group_counts = NULL;
+	this->user_counts = NULL;
 
-	nnode->nodesig_ind = -1;
+	this->max_running = SCHD_INFINITY;
+	this->max_user_run = SCHD_INFINITY;
+	this->max_group_run = SCHD_INFINITY;
 
-	nnode->name = NULL;
-	nnode->mom = NULL;
-	nnode->jobs = NULL;
-	nnode->resvs = NULL;
-	nnode->job_arr = NULL;
-	nnode->run_resvs_arr = NULL;
-	nnode->res = NULL;
-	nnode->server = NULL;
-	nnode->queue_name = NULL;
-	nnode->group_counts = NULL;
-	nnode->user_counts = NULL;
+	this->current_aoe = NULL;
+	this->current_eoe = NULL;
+	this->nodesig = NULL;
+	this->last_state_change_time = 0;
+	this->last_used_time = 0;
 
-	nnode->max_running = SCHD_INFINITY;
-	nnode->max_user_run = SCHD_INFINITY;
-	nnode->max_group_run = SCHD_INFINITY;
+	this->svr_node = NULL;
+	this->hostset = NULL;
 
-	nnode->current_aoe = NULL;
-	nnode->current_eoe = NULL;
-	nnode->nodesig = NULL;
-	nnode->last_state_change_time = 0;
-	nnode->last_used_time = 0;
+	this->node_events = NULL;
+	this->bucket_ind = -1;
+	this->node_ind = -1;
 
-	nnode->svr_node = NULL;
-	nnode->hostset = NULL;
-
-	nnode->node_events = NULL;
-	nnode->bucket_ind = -1;
-	nnode->node_ind = -1;
-
-	nnode->nscr = NSCR_NONE;
+	this->nscr = NSCR_NONE;
 
 #ifdef NAS
 	/* localmod 034 */
-	nnode->sh_type = 0;
-	nnode->sh_cls = 0;
+	this->sh_type = 0;
+	this->sh_cls = 0;
 #endif
-	nnode->partition = NULL;
-	nnode->np_arr = NULL;
-	return nnode;
+	this->partition = NULL;
+	this->np_arr = NULL;
 }
 
 /**
@@ -625,7 +600,7 @@ free_node_info_chunk(th_data_free_ninfo *data)
 	end = data->eidx;
 
 	for (i = start; i <= end && ninfo_arr[i] != NULL; i++) {
-		free_node_info(ninfo_arr[i]);
+		delete ninfo_arr[i];
 	}
 }
 
@@ -732,72 +707,24 @@ free_nodes(node_info **ninfo_arr)
 	free(ninfo_arr);
 }
 
-/**
- * @brief
- *      free_node_info - frees memory used by a node_info
- *
- * @param[in,out]	ninfo	-	the node to free
- *
- * @return	nothing
- *
- */
-void
-free_node_info(node_info *ninfo)
+node_info::~node_info()
 {
-	if (ninfo != NULL) {
-		if (ninfo->name != NULL)
-			free(ninfo->name);
-
-		if (ninfo->mom != NULL)
-			free(ninfo->mom);
-
-		if (ninfo->queue_name != NULL)
-			free(ninfo->queue_name);
-
-		if (ninfo->jobs != NULL)
-			free_string_array(ninfo->jobs);
-
-		if (ninfo->resvs != NULL)
-			free_string_array(ninfo->resvs);
-
-		if (ninfo->job_arr != NULL)
-			free(ninfo->job_arr);
-
-		if (ninfo->run_resvs_arr != NULL)
-			free(ninfo->run_resvs_arr);
-
-		if (ninfo->res != NULL)
-			free_resource_list(ninfo->res);
-
-		if (ninfo->group_counts != NULL)
-			free_counts_list(ninfo->group_counts);
-
-		if (ninfo->user_counts != NULL)
-			free_counts_list(ninfo->user_counts);
-
-		if (ninfo->current_aoe != NULL)
-			free(ninfo->current_aoe);
-
-		if (ninfo->current_eoe != NULL)
-			free(ninfo->current_eoe);
-
-		if (ninfo->nodesig != NULL)
-			free(ninfo->nodesig);
-
-		if(ninfo->node_events != NULL)
-			free_te_list(ninfo->node_events);
-
-		if (ninfo->partition != NULL)
-			free(ninfo->partition);
-
-		if (ninfo->np_arr != NULL)
-			free(ninfo->np_arr);
-
-		if (ninfo->svr_inst_id != NULL)
-			free(ninfo->svr_inst_id);
-
-		free(ninfo);
-	}
+	free(this->mom);
+	free(this->queue_name);
+	free_string_array(this->jobs);
+	free_string_array(this->resvs);
+	free(this->job_arr);
+	free(this->run_resvs_arr);
+	free_resource_list(this->res);
+	free_counts_list(this->group_counts);
+	free_counts_list(this->user_counts);
+	free(this->current_aoe);
+	free(this->current_eoe);
+	free(this->nodesig);
+	free_te_list(this->node_events);
+	free(this->partition);
+	free(this->np_arr);
+	free(this->svr_inst_id);
 }
 
 /**
@@ -835,7 +762,7 @@ set_node_info_state(node_info *ninfo, const char *state)
 
 			if (add_node_state(ninfo, tok) == 1)
 				log_eventf(PBSEVENT_SCHED, PBS_EVENTCLASS_NODE, LOG_INFO,
-					ninfo->name, "Unknown Node State: %s", tok);
+					ninfo->name.c_str(), "Unknown Node State: %s", tok);
 
 			tok = strtok_r(NULL, ",", &saveptr);
 		}
@@ -900,8 +827,8 @@ remove_node_state(node_info *ninfo, const char *state)
 	else if (!strcmp(state, ND_maintenance))
 		ninfo->is_maintenance = 0;
 	else {
-		log_eventf(PBSEVENT_SCHED, PBS_EVENTCLASS_NODE, LOG_INFO,
-			   ninfo->name, "Unknown Node State: %s on remove operation", state);
+		log_eventf(PBSEVENT_SCHED, PBS_EVENTCLASS_NODE, LOG_INFO, ninfo->name.c_str(),
+			   "Unknown Node State: %s on remove operation", state);
 		return 1;
 	}
 
@@ -975,7 +902,7 @@ add_node_state(node_info *ninfo, const char *state)
 			ninfo->is_sleeping = 1;
 	} else {
 		log_eventf(PBSEVENT_SCHED, PBS_EVENTCLASS_NODE, LOG_INFO,
-			ninfo->name, "Unknown Node State: %s on add operation", state);
+			ninfo->name.c_str(), "Unknown Node State: %s on add operation", state);
 		return 1;
 	}
 
@@ -1049,18 +976,23 @@ node_filter(node_info **nodes, int size,
  *
  */
 node_info *
-find_node_info(node_info **ninfo_arr, char *nodename)
+find_node_info(node_info **ninfo_arr, const std::string& nodename)
 {
 	int i;
 
-	if (nodename == NULL || ninfo_arr == NULL)
+	if (ninfo_arr == NULL)
 		return NULL;
 
-	for (i = 0; ninfo_arr[i] != NULL &&
-		strcmp(nodename, ninfo_arr[i]->name) ; i++)
+	for (i = 0; ninfo_arr[i] != NULL && nodename != ninfo_arr[i]->name; i++)
 		;
 
 	return ninfo_arr[i];
+}
+
+node_info *
+find_node_info(node_info **ninfo_arr, const char *nodename)
+{
+	return find_node_info(ninfo_arr, std::string(nodename));
 }
 
 /**
@@ -1288,8 +1220,8 @@ dup_nodes(node_info **onodes, server_info *nsinfo, unsigned int flags)
 						ninfo = find_node_info(onodes, nnodes[i]->name);
 						ores = find_resource(ninfo->res, nres->def);
 						if (ores->indirect_res != NULL) {
-							sprintf(namebuf, "@%s", nnodes[i]->name);
-							for (j = i+1; nnodes[j] != NULL; j++) {
+							sprintf(namebuf, "@%s", nnodes[i]->name.c_str());
+							for (j = i + 1; nnodes[j] != NULL; j++) {
 								tres = find_resource(nnodes[j]->res, nres->def);
 								if (tres != NULL) {
 									if (tres->indirect_vnode_name != NULL &&
@@ -1336,19 +1268,16 @@ dup_nodes(node_info **onodes, server_info *nsinfo, unsigned int flags)
  *
  */
 node_info *
-dup_node_info(node_info *onode, server_info *nsinfo,
-	unsigned int flags)
+dup_node_info(node_info *onode, server_info *nsinfo, unsigned int flags)
 {
 	node_info *nnode;
 
 	if (onode == NULL)
 		return NULL;
 
-	if ((nnode = new_node_info()) == NULL)
-		return NULL;
+	nnode = new node_info(onode->name.c_str());
 
 	nnode->server = nsinfo;
-	nnode->name = string_dup(onode->name);
 	nnode->mom = string_dup(onode->mom);
 	nnode->queue_name = string_dup(onode->queue_name);
 
@@ -1421,7 +1350,7 @@ dup_node_info(node_info *onode, server_info *nsinfo,
 	if (onode->partition != NULL) {
 		nnode->partition = string_dup(onode->partition);
 		if (nnode->partition == NULL) {
-			free_node_info(nnode);
+			delete nnode;
 			return NULL;
 		}
 	}
@@ -1445,7 +1374,7 @@ dup_node_info(node_info *onode, server_info *nsinfo,
  *
  */
 node_info **
-copy_node_ptr_array(node_info  **oarr, node_info  **narr)
+copy_node_ptr_array(node_info **oarr, node_info **narr)
 {
 	int i;
 	node_info **ninfo_arr;
@@ -1498,7 +1427,7 @@ collect_resvs_on_nodes(node_info **ninfo_arr, resource_resv **resresv_arr, int s
 
 	for (i = 0; ninfo_arr[i] != NULL; i++) {
 		ninfo_arr[i]->run_resvs_arr = resource_resv_filter(resresv_arr, size,
-			check_resv_running_on_node, ninfo_arr[i]->name, 0);
+			check_resv_running_on_node, ninfo_arr[i]->name.c_str(), 0);
 		/* the count of running resvs on the node is set in query_reservations */
 	}
 	return 1;
@@ -1552,7 +1481,7 @@ collect_jobs_on_nodes(node_info **ninfo_arr, resource_resv **resresv_arr, int si
 			 */
 			if (size == 0 && (flags & DETECT_GHOST_JOBS)) {
 				ninfo_arr[i]->has_ghost_job = 1;
-				log_event(PBSEVENT_DEBUG2, PBS_EVENTCLASS_NODE, LOG_DEBUG, ninfo_arr[i]->name,
+				log_event(PBSEVENT_DEBUG2, PBS_EVENTCLASS_NODE, LOG_DEBUG, ninfo_arr[i]->name.c_str(),
 					  "Jobs reported running on node no longer exists or are not in running state");
 			}
 
@@ -1599,7 +1528,7 @@ collect_jobs_on_nodes(node_info **ninfo_arr, resource_resv **resresv_arr, int si
 					 * recalculated later.
 					 */
 					ninfo_arr[i]->has_ghost_job = 1;
-					log_eventf(PBSEVENT_DEBUG2, PBS_EVENTCLASS_NODE, LOG_DEBUG, ninfo_arr[i]->name,
+					log_eventf(PBSEVENT_DEBUG2, PBS_EVENTCLASS_NODE, LOG_DEBUG, ninfo_arr[i]->name.c_str(),
 						"Job %s reported running on node no longer exists or is not in running state",
 						ninfo_arr[i]->jobs[j]);
 				}
@@ -1879,7 +1808,7 @@ update_node_on_end(node_info *ninfo, resource_resv *resresv, const char *job_sta
 							res = res->indirect_res;
 						res->assigned -= resreq->amount;
 						if (res->assigned < 0) {
-							log_eventf(PBSEVENT_DEBUG, PBS_EVENTCLASS_NODE, LOG_DEBUG, ninfo->name,
+							log_eventf(PBSEVENT_DEBUG, PBS_EVENTCLASS_NODE, LOG_DEBUG, ninfo->name.c_str(),
 								"%s turned negative %.2lf, setting it to 0", res->name, res->assigned);
 							res->assigned = 0;
 						}
@@ -2259,7 +2188,7 @@ eval_selspec(status *policy, selspec *spec, place *placespec,
 	for (i = 0; nodepart[i] != NULL && rc == 0; i++) {
 		clear_schd_error(err);
 		if (resresv_can_fit_nodepart(policy, nodepart[i], resresv, flags, err)) {
-			log_eventf(PBSEVENT_DEBUG3, PBS_EVENTCLASS_JOB, LOG_DEBUG, resresv->name,
+			log_eventf(PBSEVENT_DEBUG3, PBS_EVENTCLASS_JOB, LOG_DEBUG, resresv->name.c_str(),
 				"Evaluating placement set: %s", nodepart[i]->name);
 			if (nodepart[i]->ok_break)
 				pass_flags |= EVAL_OKBREAK;
@@ -2285,7 +2214,7 @@ eval_selspec(status *policy, selspec *spec, place *placespec,
 		}
 		else {
 			translate_fail_code(err, NULL, reason);
-			log_eventf(PBSEVENT_DEBUG3, PBS_EVENTCLASS_JOB, LOG_DEBUG, resresv->name,
+			log_eventf(PBSEVENT_DEBUG3, PBS_EVENTCLASS_JOB, LOG_DEBUG, resresv->name.c_str(),
 				"Placement set %s is too small: %s", nodepart[i]->name, reason);
 			set_schd_error_codes(err, NOT_RUN, SET_TOO_SMALL);
 			set_schd_error_arg(err, ARG1, "Placement");
@@ -2307,7 +2236,7 @@ eval_selspec(status *policy, selspec *spec, place *placespec,
 
 	if (!can_fit) {
 		if (flags & SPAN_PSETS) {
-			log_event(PBSEVENT_DEBUG3, PBS_EVENTCLASS_JOB, LOG_DEBUG, resresv->name,
+			log_event(PBSEVENT_DEBUG3, PBS_EVENTCLASS_JOB, LOG_DEBUG, resresv->name.c_str(),
 				"Request won't fit into any placement sets, will use all nodes");
 			resresv->can_not_fit = 1;
 			if (resresv->server->has_multi_vnode && ok_break_chunk(resresv, ninfo_arr))
@@ -2464,7 +2393,7 @@ eval_placement(status *policy, selspec *spec, node_info **ninfo_arr, place *pl,
 
 			rc = any_succ_rc = 0;
 			log_eventf(PBSEVENT_DEBUG3, PBS_EVENTCLASS_NODE, LOG_DEBUG,
-				resresv->name, "Evaluating host %s", hostsets[i]->res_val);
+				resresv->name.c_str(), "Evaluating host %s", hostsets[i]->res_val);
 
 			/* Pack on One Host Placement:
 			 * place all chunks on one host.  This is done with a call to
@@ -2541,7 +2470,7 @@ eval_placement(status *policy, selspec *spec, node_info **ninfo_arr, place *pl,
 							translate_fail_code(err, NULL, reason);
 
 						log_eventf(PBSEVENT_DEBUG3, PBS_EVENTCLASS_JOB, LOG_DEBUG,
-							resresv->name, "Insufficient host-level resources %s", reason);
+							resresv->name.c_str(), "Insufficient host-level resources %s", reason);
 
 						/* don't be so specific in the comment since it's only for a single host */
 						set_schd_error_arg(err, ARG1, NULL);
@@ -2607,7 +2536,7 @@ eval_placement(status *policy, selspec *spec, node_info **ninfo_arr, place *pl,
 							translate_fail_code(err, NULL, reason);
 
 						log_eventf(PBSEVENT_DEBUG3, PBS_EVENTCLASS_JOB, LOG_DEBUG,
-							resresv->name, "Insufficient host-level resources %s", reason);
+							resresv->name.c_str(), "Insufficient host-level resources %s", reason);
 
 						/* don't be so specific in the comment since it's only for a single host */
 						set_schd_error_arg(err, ARG1, NULL);
@@ -2704,7 +2633,7 @@ eval_placement(status *policy, selspec *spec, node_info **ninfo_arr, place *pl,
 							translate_fail_code(err, NULL, reason);
 
 						log_eventf(PBSEVENT_DEBUG3, PBS_EVENTCLASS_JOB, LOG_DEBUG,
-							resresv->name, "Insufficient host-level resources %s", reason);
+							resresv->name.c_str(), "Insufficient host-level resources %s", reason);
 #ifdef NAS /* localmod 998 */
 						set_schd_error_codes(err, NOT_RUN, RESOURCES_INSUFFICIENT);
 						set_schd_error_arg(err, ARG1, "Host");
@@ -2732,7 +2661,7 @@ eval_placement(status *policy, selspec *spec, node_info **ninfo_arr, place *pl,
 				free_nodes(dup_ninfo_arr);
 			}
 			else {
-				log_eventf(PBSEVENT_DEBUG, PBS_EVENTCLASS_NODE, LOG_DEBUG, resresv->name,
+				log_eventf(PBSEVENT_DEBUG, PBS_EVENTCLASS_NODE, LOG_DEBUG, resresv->name.c_str(),
 					"Unexpected Placement: not %s, %s, %s, or %s",
 					PLACE_Scatter, PLACE_VScatter, PLACE_Pack, PLACE_Free);
 			}
@@ -2886,7 +2815,7 @@ eval_complex_selspec(status *policy, selspec *spec, node_info **ninfo_arr, place
 	 * as no multi-node jobs
 	 */
 	resresv->will_use_multinode = 1;
-	log_event(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_DEBUG, resresv->name,
+	log_event(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_DEBUG, resresv->name.c_str(),
 		"Used multiple nodes with no_multinode_job=true: Resatisfy");
 	if (nspec_arr != NULL)
 		empty_nspec_array(*nspec_arr);
@@ -2991,7 +2920,7 @@ eval_simple_selspec(status *policy, chunk *chk, node_info **pninfo_arr,
 	str_chunk = &chk->str_chunk[i];
 
 	log_eventf(PBSEVENT_DEBUG3, PBS_EVENTCLASS_NODE, LOG_DEBUG,
-		resresv->name, "Evaluating subchunk: %s", str_chunk);
+		resresv->name.c_str(), "Evaluating subchunk: %s", str_chunk);
 
 	/* We're duplicating the entire list here.  This list is organized so that
 	 * all non-consumable resources come before the consumable ones.  After
@@ -3147,7 +3076,7 @@ eval_simple_selspec(status *policy, chunk *chk, node_info **pninfo_arr,
 
 		} else {
 			log_event(PBSEVENT_DEBUG3, PBS_EVENTCLASS_NODE, LOG_DEBUG,
-				ninfo_arr[i]->name, "Node allocated to job");
+				ninfo_arr[i]->name.c_str(), "Node allocated to job");
 		}
 	}
 
@@ -3163,7 +3092,7 @@ eval_simple_selspec(status *policy, chunk *chk, node_info **pninfo_arr,
 
 	if (chunks_found) {
 		log_eventf(PBSEVENT_DEBUG3, PBS_EVENTCLASS_NODE, LOG_DEBUG,
-			resresv->name, "Allocated one subchunk: %s", str_chunk);
+			resresv->name.c_str(), "Allocated one subchunk: %s", str_chunk);
 		clear_schd_error(err);
 		return 1;
 	}
@@ -3178,7 +3107,7 @@ eval_simple_selspec(status *policy, chunk *chk, node_info **pninfo_arr,
 		nsa[i] = NULL;
 	}
 
-	log_eventf(PBSEVENT_DEBUG3, PBS_EVENTCLASS_NODE, LOG_DEBUG, resresv->name,
+	log_eventf(PBSEVENT_DEBUG3, PBS_EVENTCLASS_NODE, LOG_DEBUG, resresv->name.c_str(),
 		"Failed to satisfy subchunk: %s", chk->str_chunk);
 
 	/* If the last node we looked at was fine, err would be empty.
@@ -3484,7 +3413,7 @@ resources_avail_on_vnode(resource_req *specreq_cons, node_info *node,
 						if (resresv->select->total_chunks > 1 && pl->scatter != 1 && pl->vscatter != 1)
 							set_current_aoe(node, resresv->aoename);
 						if (resresv->is_job) {
-							log_eventf(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_NOTICE, resresv->name,
+							log_eventf(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_NOTICE, resresv->name.c_str(),
 								"Vnode %s selected for provisioning with AOE %s", node->name, resresv->aoename);
 						}
 					}
@@ -3500,7 +3429,7 @@ resources_avail_on_vnode(resource_req *specreq_cons, node_info *node,
 							set_current_eoe(node, resresv->eoename);
 
 						if (resresv->is_job)
-							log_eventf(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_NOTICE, resresv->name,
+							log_eventf(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_NOTICE, resresv->name.c_str(),
 								"Vnode %s selected for power with EOE %s", node->name, resresv->eoename);
 					}
 
@@ -3541,7 +3470,7 @@ resources_avail_on_vnode(resource_req *specreq_cons, node_info *node,
 					/* use tmpreq to wrap the amount so we can use res_to_str */
 					tmpreq.amount = amount;
 
-					log_eventf(PBSEVENT_DEBUG3, PBS_EVENTCLASS_NODE, LOG_DEBUG, node->name,
+					log_eventf(PBSEVENT_DEBUG3, PBS_EVENTCLASS_NODE, LOG_DEBUG, node->name.c_str(),
 						"vnode allocated %s=%s", req->name, res_to_str(&tmpreq, RF_REQUEST));
 
 					allocated = 1;
@@ -3558,7 +3487,7 @@ resources_avail_on_vnode(resource_req *specreq_cons, node_info *node,
 			}
 
 			if (pl->pack && num_chunks == 1 && cstat.smp_dist == SMP_ROUND_ROBIN)
-				pbs_strncpy(last_node_name, node->name, sizeof(last_node_name));
+				pbs_strncpy(last_node_name, node->name.c_str(), sizeof(last_node_name));
 			return 1;
 		}
 	} else {
@@ -3604,7 +3533,7 @@ resources_avail_on_vnode(resource_req *specreq_cons, node_info *node,
 			}
 
 			if (pl->pack && cstat.smp_dist == SMP_ROUND_ROBIN)
-				pbs_strncpy(last_node_name, node->name, sizeof(last_node_name));
+				pbs_strncpy(last_node_name, node->name.c_str(), sizeof(last_node_name));
 		}
 		return num_chunks;
 	}
@@ -3726,7 +3655,7 @@ check_resources_for_node(resource_req *resreq, node_info *ninfo,
 				}
 				else {
 					ns = NULL;
-					log_eventf(PBSEVENT_SCHED, PBS_EVENTCLASS_SCHED, LOG_WARNING, resresv->name,
+					log_eventf(PBSEVENT_SCHED, PBS_EVENTCLASS_SCHED, LOG_WARNING, resresv->name.c_str(),
 						"Event %s is a run/end event w/o nspec array, ignoring event", event->name);
 				}
 
@@ -4170,7 +4099,7 @@ create_execvnode(nspec **ns)
 				return NULL;
 		}
 
-		if (pbs_strcat(&buf, &bufsize, ns[i]->ninfo->name) ==NULL)
+		if (pbs_strcat(&buf, &bufsize, ns[i]->ninfo->name.c_str()) == NULL)
 			return NULL;
 
 		end_of_chunk = ns[i]->end_of_chunk;
@@ -4617,7 +4546,7 @@ reorder_nodes(node_info **nodes, resource_resv *resresv)
 
 
 	if (last_node_name[0] == '\0' && nodes[0] != NULL)
-		snprintf(last_node_name, sizeof(last_node_name), "%s", nodes[0]->name);
+		snprintf(last_node_name, sizeof(last_node_name), "%s", nodes[0]->name.c_str());
 
 	if (resresv != NULL) {
 		if (resresv->aoename != NULL && conf.provision_policy == AVOID_PROVISION) {
@@ -4629,7 +4558,7 @@ reorder_nodes(node_info **nodes, resource_resv *resresv)
 			cmp_aoename = string_dup(resresv->aoename);
 			qsort(nptr, nsize, sizeof(node_info *), cmp_aoe);
 
-			log_eventf(PBSEVENT_DEBUG3, PBS_EVENTCLASS_JOB, LOG_DEBUG, resresv->name,
+			log_eventf(PBSEVENT_DEBUG3, PBS_EVENTCLASS_JOB, LOG_DEBUG, resresv->name.c_str(),
 				"Re-sorted the nodes on aoe %s, since aoe was requested", resresv->aoename);
 
 			return nptr;
@@ -4651,7 +4580,7 @@ reorder_nodes(node_info **nodes, resource_resv *resresv)
 			memcpy(tmparr, nodes, nsize * sizeof(node_info *));
 			qsort(tmparr, nsize, sizeof(node_info *), cmp_node_host);
 
-			for (i = 0; i < nsize && strcmp(last_node_name, tmparr[i]->name); i++)
+			for (i = 0; i < nsize && tmparr[i]->name == last_node_name; i++)
 				;
 
 			if (i < nsize) {
@@ -4727,7 +4656,7 @@ ok_break_chunk(resource_resv *resresv, node_info **nodes)
 		}
 		else {
 			log_event(PBSEVENT_SCHED, PBS_EVENTCLASS_NODE, LOG_WARNING,
-				nodes[i]->name, "Node has no host resource");
+				nodes[i]->name.c_str(), "Node has no host resource");
 		}
 	}
 
@@ -5237,7 +5166,7 @@ node_in_str(node_info *node, void *strarr)
 	if (node == NULL || strarr == NULL)
 		return 0;
 
-	if (is_string_in_arr((char **)strarr, node->name))
+	if (is_string_in_arr((char **)strarr, node->name.c_str()))
 		return 1;
 
 	return 0;
