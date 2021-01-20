@@ -40,10 +40,6 @@
 #ifndef	_MISC_H
 #define	_MISC_H
 
-<<<<<<< HEAD
-
-=======
->>>>>>> C++ refactoring
 #include "data_types.h"
 #include "server_info.h"
 #include "queue_info.h"

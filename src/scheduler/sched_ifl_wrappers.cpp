@@ -63,7 +63,7 @@
  * @retval	return value of the runjob call
  */
 int
-send_run_job(int virtual_sd, int has_runjob_hook, std::string& jobid, char *execvnode,
+send_run_job(int virtual_sd, int has_runjob_hook, const std::string& jobid, char *execvnode,
  	     char *svr_id_node, char *svr_id_job)
 {
 	char extend[PBS_MAXHOSTNAME + 6];
@@ -79,11 +79,11 @@ send_run_job(int virtual_sd, int has_runjob_hook, std::string& jobid, char *exec
  		snprintf(extend, sizeof(extend), "%s=%s", SERVER_IDENTIFIER, svr_id_node);
 
 	if (sc_attrs.runjob_mode == RJ_EXECJOB_HOOK)
-		return pbs_runjob(job_owner_sd, jobid.c_str(), execvnode, extend);
+		return pbs_runjob(job_owner_sd, const_cast<char *>(jobid.c_str()), execvnode, extend);
 	else if (((sc_attrs.runjob_mode == RJ_RUNJOB_HOOK) && has_runjob_hook))
-		return pbs_asyrunjob_ack(job_owner_sd, jobid.c_str(), execvnode, extend);
+		return pbs_asyrunjob_ack(job_owner_sd, const_cast<char *>(jobid.c_str()), execvnode, extend);
 	else
-		return pbs_asyrunjob(job_owner_sd, jobid.c_str(), execvnode, extend);
+		return pbs_asyrunjob(job_owner_sd, const_cast<char *>(jobid.c_str()), execvnode, extend);
 }
 
 /**
@@ -99,7 +99,7 @@ send_run_job(int virtual_sd, int has_runjob_hook, std::string& jobid, char *exec
  * @retval	0	failure to update
  */
 int
-send_attr_updates(int job_owner_sd, char *job_name, struct attrl *pattr)
+send_attr_updates(int job_owner_sd, const char *job_name, struct attrl *pattr)
 {
 	const char *errbuf;
 	int one_attr = 0;
@@ -113,7 +113,7 @@ send_attr_updates(int job_owner_sd, char *job_name, struct attrl *pattr)
 	if (pattr->next == NULL)
 		one_attr = 1;
 
-	if (pbs_asyalterjob(job_owner_sd, job_name, pattr, NULL) == 0) {
+	if (pbs_asyalterjob(job_owner_sd, const_cast<char *>(job_name), pattr, NULL) == 0) {
 		last_attr_updates = time(NULL);
 		return 1;
 	}

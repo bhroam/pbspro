@@ -484,8 +484,4 @@ int compare_resource_avail(schd_resource *r1, schd_resource *r2);
 node_info **dup_unordered_nodes(node_info **old_unordered_nodes, node_info **nnodes);
 
 void clear_server_info_for_query(server_info *sinfo);
-<<<<<<< HEAD
-
-=======
->>>>>>> C++ refactoring
 #endif	/* _SERVER_INFO_H */

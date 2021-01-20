@@ -256,7 +256,7 @@ int validate_running_user(char *exename);
 
 void clear_last_running();
 
-int send_run_job(int virtual_sd, int has_runjob_hook, std::string& jobid, char *execvnode,
+int send_run_job(int virtual_sd, int has_runjob_hook, const std::string& jobid, char *execvnode,
 		 char *svr_id_node, char *svr_id_job);
 
 #endif	/* _FIFO_H */
