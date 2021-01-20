@@ -1319,7 +1319,7 @@ clear_server_info_for_query(server_info *sinfo)
 	if (sinfo->unordered_nodes != NULL)
 		free(sinfo->unordered_nodes);
 	sinfo->unordered_nodes = NULL;
-	if (sinfo->unassoc_nodes != NULL)
+	if (sinfo->unassoc_nodes != sinfo->nodes)
 		free(sinfo->unassoc_nodes);
 	sinfo->unassoc_nodes = NULL;
 	if (sinfo->nodesigs != NULL)
@@ -4027,13 +4027,14 @@ add_req_list_to_assn(schd_resource *reslist, resource_req *reqlist)
 
 /**
  * @brief create the ninfo->res->assigned values for the node
- * @param ninfo - the node
+ * @param[in] ninfo - the node
+ * @param[in] resv_node - is this a reservation node or a real node
  * @return int
  * @retval 1 success
  * @retval 0 failure
  */
 int
-create_resource_assn_for_node(node_info *ninfo)
+create_resource_assn_for_node(node_info *ninfo, int resv_node)
 {
 	schd_resource *r;
 	schd_resource *ncpus_res = NULL;
@@ -4053,58 +4054,15 @@ create_resource_assn_for_node(node_info *ninfo)
 	if (ninfo->job_arr != NULL) {
 		for (i = 0; ninfo->job_arr[i] != NULL; i++) {
 			/* ignore jobs in reservations.  The resources will be accounted for with the reservation itself.  */
-			if (ninfo->job_arr[i]->job != NULL && ninfo->job_arr[i]->job->resv == NULL) {
-				if (ninfo->job_arr[i]->nspec_arr != NULL) {
-					int j;
-					for (j = 0; ninfo->job_arr[i]->nspec_arr[j] != NULL; j++) {
-						nspec *n = ninfo->job_arr[i]->nspec_arr[j];
-						if (n->ninfo->rank == ninfo->rank)
-							add_req_list_to_assn(ninfo->res, n->resreq);
-					}
-				}
-			}
-		}
-	}
-
-	/* Next up, account for running reservations.  Running reservations consume all resources on the node when they start.  */
-	if (ninfo->run_resvs_arr != NULL) {
-		for (i = 0; ninfo->run_resvs_arr[i] != NULL; i++) {
-			if (ninfo->run_resvs_arr[i]->nspec_arr != NULL) {
-				int j;
-				for (j = 0; ninfo->run_resvs_arr[i]->nspec_arr[j] != NULL; j++) {
-					nspec *n = ninfo->run_resvs_arr[i]->nspec_arr[j];
-					if (n->ninfo->rank == ninfo->rank)
-						add_req_list_to_assn(ninfo->res, n->resreq);
-				}
-			}
-		}
-	}
-
-	/* Lastly if restrict_res_to_release_on_suspend is set, suspended jobs may not have released all their resources
-	 * This is tricky since a suspended job knows what resources they released.
-	 * We need to know what they didn't release to account for in the nodes resources_assigned
-	 * Also, we only need to deal with suspended jobs outside of reservations since resources for reservations were handled above.
-	 */
-	if (ninfo->num_susp_jobs > 0) {
-		int i;
-		server_info *sinfo = ninfo->server;
-		for (i = 0; sinfo->jobs[i] != NULL; i++) {
-			if (sinfo->jobs[i]->job->is_suspended && sinfo->jobs[i]->job->resv == NULL) {
-				nspec *ens;
-				ens = find_nspec(sinfo->jobs[i]->nspec_arr, ninfo);
-				if (ens != NULL) {
-					nspec *rns;
-					rns = find_nspec(sinfo->jobs[i]->job->resreleased, ninfo);
-					if (rns != NULL) {
-						resource_req *cur_req;
-						for (cur_req = ens->resreq; cur_req != NULL; cur_req = cur_req->next) {
-							if (cur_req->type.is_consumable)
-								if (find_resource_req(rns->resreq, cur_req->def) == NULL) {
-									schd_resource *nres;
-									nres = find_resource(ninfo->res, cur_req->def);
-									if (nres != NULL)
-										nres->assigned += cur_req->amount;
-								}
+			if (ninfo->job_arr[i]->job != NULL) {
+				if ((resv_node && ninfo->job_arr[i]->job->resv != NULL) || 
+					(!resv_node && ninfo->job_arr[i]->job->resv == NULL)) {
+					if (ninfo->job_arr[i]->nspec_arr != NULL) {
+						int j;
+						for (j = 0; ninfo->job_arr[i]->nspec_arr[j] != NULL; j++) {
+							nspec *n = ninfo->job_arr[i]->nspec_arr[j];
+							if (n->ninfo->rank == ninfo->rank)
+								add_req_list_to_assn(ninfo->res, n->resreq);
 						}
 					}
 				}
@@ -4112,8 +4070,56 @@ create_resource_assn_for_node(node_info *ninfo)
 		}
 	}
 
-	if (ncpus_res != NULL && ncpus_res->assigned < ncpus_res->avail)
-		remove_node_state(ninfo, ND_jobbusy);
+	if (!resv_node) {
+		/* Next up, account for running reservations.  Running reservations consume all resources on the node when they start. */
+		if (ninfo->run_resvs_arr != NULL) {
+			for (i = 0; ninfo->run_resvs_arr[i] != NULL; i++) {
+				if (ninfo->run_resvs_arr[i]->nspec_arr != NULL) {
+					int j;
+					for (j = 0; ninfo->run_resvs_arr[i]->nspec_arr[j] != NULL; j++) {
+						nspec *n = ninfo->run_resvs_arr[i]->nspec_arr[j];
+						if (n->ninfo->rank == ninfo->rank)
+							add_req_list_to_assn(ninfo->res, n->resreq);
+					}
+				}
+			}
+		}
+
+		/* Lastly if restrict_res_to_release_on_suspend is set, suspended jobs may not have released all their resources
+	 	 * This is tricky since a suspended job knows what resources they released.
+	 	 * We need to know what they didn't release to account for in the nodes resources_assigned
+	 	 * Also, we only need to deal with suspended jobs outside of reservations since resources for reservations were handled above.
+	 	 */
+		if (ninfo->num_susp_jobs > 0) {
+			int i;
+			server_info *sinfo = ninfo->server;
+			for (i = 0; sinfo->jobs[i] != NULL; i++) {
+				if (sinfo->jobs[i]->job->is_suspended && sinfo->jobs[i]->job->resv == NULL) {
+					nspec *ens;
+					ens = find_nspec(sinfo->jobs[i]->nspec_arr, ninfo);
+					if (ens != NULL) {
+						nspec *rns;
+						rns = find_nspec(sinfo->jobs[i]->job->resreleased, ninfo);
+						if (rns != NULL) {
+							resource_req *cur_req;
+							for (cur_req = ens->resreq; cur_req != NULL; cur_req = cur_req->next) {
+								if (cur_req->type.is_consumable)
+									if (find_resource_req(rns->resreq, cur_req->def) == NULL) {
+										schd_resource *nres;
+										nres = find_resource(ninfo->res, cur_req->def);
+										if (nres != NULL)
+											nres->assigned += cur_req->amount;
+									}
+							}
+						}
+					}
+				}
+			}
+		}
+
+		if (ncpus_res != NULL && ncpus_res->assigned < ncpus_res->avail)
+			remove_node_state(ninfo, ND_jobbusy);
+	}
 
 	return 1;
 }

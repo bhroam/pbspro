@@ -525,7 +525,7 @@ schedule(int sd, const sched_cmd *cmd)
 		case SCH_SCHEDULE_AJOB:
 			return intermediate_schedule(sd, cmd);
 		case SCH_CONFIGURE:
-			got_configure = 1;
+			requery_universe = 1;
 			log_event(PBSEVENT_SCHED, PBS_EVENTCLASS_SCHED, LOG_INFO,
 				  "reconfigure", "Scheduler is reconfiguring");
 			reset_global_resource_ptrs();
@@ -622,13 +622,13 @@ scheduling_cycle(int sd, const sched_cmd *cmd)
 	log_event(PBSEVENT_DEBUG, PBS_EVENTCLASS_REQUEST, LOG_DEBUG,
 		  "", "Starting Scheduling Cycle");
 		
-	if (got_configure) {
+	if (requery_universe) {
 		if (keep_sinfo != NULL) {
 			keep_sinfo->fairshare = NULL; /* This has been freed already */
 			free_server(keep_sinfo);
 			keep_sinfo = NULL;
 		}
-		got_configure = 0;
+		requery_universe = 0;
 		last_cycle_time = 0;
 	}
 
@@ -651,6 +651,7 @@ scheduling_cycle(int sd, const sched_cmd *cmd)
 		log_event(PBSEVENT_SYSTEM, PBS_EVENTCLASS_SERVER, LOG_NOTICE,
 			  "", "Problem with creating server data structure");
 		last_cycle_time = 0;
+		requery_universe = 1;
 		end_cycle_tasks(keep_sinfo);
 		return 0;
 	}

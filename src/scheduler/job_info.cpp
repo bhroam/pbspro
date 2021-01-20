@@ -683,6 +683,7 @@ query_jobs(status *policy, int pbs_sd, queue_info *qinfo, resource_resv **pjobs,
 			}
 
 			delete resresv;
+			requery_universe = 1;
 			continue;
 		}
 
@@ -698,10 +699,11 @@ query_jobs(status *policy, int pbs_sd, queue_info *qinfo, resource_resv **pjobs,
 			}
 
 			delete resresv;
+			requery_universe = 1;
 			continue;
 		}
 
-		if (job != NULL && job->job->queue != qinfo) { // job has been moved from one queue to another
+		if (job != NULL && job->job->queue != qinfo) { // job has been moved from one queue to this one
 			remove_ptr_from_array(job->job->queue->jobs, job);
 			job_state_count_add(&job->job->queue->sc, job, -1);
 			job = NULL;
@@ -979,11 +981,15 @@ query_job(struct batch_status *job, server_info *sinfo, resource_resv *prev_job,
 			else
 				resresv->job->stime = -1;
 		} else if (!strcmp(attrp->name, ATTR_state)) { /* state of job */
+			int is_running = resresv->job->is_running;
 			if (set_job_state(attrp->value, resresv->job) == 0) {
 				set_schd_error_codes(err, NEVER_RUN, ERR_SPECIAL);
 				set_schd_error_arg(err, SPECMSG, "Job is in an invalid state");
 				resresv->is_invalid = 1;
 			}
+			if ((is_running && !resresv->job->is_running) || (!is_running && resresv->job->is_running))
+				if (resresv->job->resv != NULL)
+					resresv->job->resv->resv->rjob_state_change = 1;
 		} else if (!strcmp(attrp->name, ATTR_substate)) {
 			if (!strcmp(attrp->value, SUSP_BY_SCHED_SUBSTATE))
 				resresv->job->is_susp_sched = 1;

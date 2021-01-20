@@ -152,9 +152,8 @@ query_reservations(int pbs_sd, server_info *sinfo, struct batch_status *resvs)
 	resource_resv **resresv_arr;
 
 	/* the current resv */
-	resource_resv *resresv;
+	resource_resv *resresv;;
 
-	int i;
 	int new_resvs = 0;
 
 	schd_error *err;
@@ -196,8 +195,8 @@ query_reservations(int pbs_sd, server_info *sinfo, struct batch_status *resvs)
 	for (cur_resv = diff_resvs; cur_resv != NULL; cur_resv = cur_resv->next) {
 		int ignore_resv = 0;
 		struct attrl *attrp = NULL;
-		resource_resv **jobs_in_reservations;
 		resource_resv *presresv = NULL;
+		int old_is_running = 0;
 
 		clear_schd_error(err);
 
@@ -232,15 +231,21 @@ query_reservations(int pbs_sd, server_info *sinfo, struct batch_status *resvs)
 
 		if (cur_resv->attribs == NULL && presresv != NULL) { /* Reservation removed */
 			sinfo->num_resvs -= remove_resv_from_server(resresv_arr, presresv);
-			ignore_resv = 1;
+			continue;
 		}
 
-		if (ignore_resv)
+		if (ignore_resv) {
+			requery_universe = 1;
 			continue;
-		
+		}
+
+		if (presresv != NULL)
+			old_is_running = is_resresv_running(presresv);
+
 		if ((resresv = query_resv(cur_resv, sinfo, presresv)) == NULL) {
 			free_resource_resv_array(resresv_arr);
 			free_schd_error(err);
+			requery_universe = 1;
 			return NULL;
 		}
 #ifdef NAS /* localmod 047 */
@@ -270,7 +275,7 @@ query_reservations(int pbs_sd, server_info *sinfo, struct batch_status *resvs)
 			ignore_resv = 1;
 		}
 
-		if (ignore_resv == 1) {
+		if (ignore_resv) {
 			/* mark all the jobs of the associated queue as can never run */
 			if (resresv->resv->resv_queue != NULL) {
 				clear_schd_error(err);
@@ -283,7 +288,8 @@ query_reservations(int pbs_sd, server_info *sinfo, struct batch_status *resvs)
 				sinfo->num_resvs -= remove_resv_from_server(resresv_arr, presresv);
 			else
 				delete resresv;
-			
+
+			requery_universe = 1;
 			continue;
 		}
 
@@ -326,29 +332,13 @@ query_reservations(int pbs_sd, server_info *sinfo, struct batch_status *resvs)
 			resresv->node_set = create_node_array_from_str(
 				resresv->server->unassoc_nodes, resresv->node_set_str);
 		}
-		if (is_resresv_running(resresv)) {
-			for (i = 0; resresv->ninfo_arr[i] != NULL; i++)
+		if (is_resresv_running(resresv) && !old_is_running) {
+			for (int i = 0; resresv->ninfo_arr[i] != NULL; i++)
 				resresv->ninfo_arr[i]->num_run_resv++;
 		}
 
-		if (resresv->resv->resv_queue != NULL) {
+		if (resresv->resv->resv_queue != NULL)
 			resresv->resv->resv_queue->resv = resresv;
-			if (resresv->resv->resv_queue->jobs != NULL) {
-				jobs_in_reservations = resource_resv_filter(resresv->resv->resv_queue->jobs,
-									    count_array(resresv->resv->resv_queue->jobs),
-									    check_running_job_in_reservation, NULL, 0);
-				collect_jobs_on_nodes(resresv->resv->resv_nodes, jobs_in_reservations,
-							count_array(jobs_in_reservations), NO_FLAGS);
-				free(jobs_in_reservations);
-
-				/* Sort the nodes to ensure correct job placement. */
-				qsort(resresv->resv->resv_nodes,
-					count_array(resresv->resv->resv_nodes),
-					sizeof(node_info *), multi_node_sort);
-				for (i = 0; resresv->resv->resv_nodes[i] != NULL; i++)
-					create_resource_assn_for_node(resresv->resv->resv_nodes[i]);
-			}
-		}
 		/* The server's info only gives information about a single reservation
 		 * object. In the case of a standing reservation, it is up to the
 		 * scheduler to account for each occurrence and attempt to confirm the
@@ -429,7 +419,7 @@ query_reservations(int pbs_sd, server_info *sinfo, struct batch_status *resvs)
 			 * parent reservation and resetting start and end times and the
 			 * execvnode on which the occurrence is confirmed to run.
 			 */
-			for (i = 0; occr_idx <= count; occr_idx++, i++, degraded_idx++) {
+			for (int i = 0; occr_idx <= count; occr_idx++, i++, degraded_idx++) {
 				/* If it is not the first occurrence then update the start time as
 				 * req_start_standing (if set). This is to ensure that if the first
 				 * occurrence has been changed, other future occurrences are not
@@ -576,6 +566,37 @@ query_reservations(int pbs_sd, server_info *sinfo, struct batch_status *resvs)
 			}
 			resresv_arr = tmp;
 			new_resvs++;
+		}
+	}
+	for (int i = 0; resresv_arr[i] != NULL; i++) {
+		if (resresv_arr[i]->resv->rjob_state_change) {
+			/* pick up any new running jobs on the resv_nodes */
+			for (int j = 0; resresv_arr[i]->resv->resv_nodes[j] != NULL; j++) {
+				node_info *resv_node = resresv_arr[i]->resv->resv_nodes[j];
+
+				if (resv_node->jobs != NULL)
+					free_string_array(resv_node->jobs);
+				resv_node->jobs = dup_string_arr(resv_node->svr_node->jobs);
+			}
+
+			if (resresv_arr[i]->resv->resv_queue->jobs != NULL) {
+				resource_resv **jobs_in_reservations;
+				jobs_in_reservations = resource_resv_filter(resresv_arr[i]->resv->resv_queue->jobs,
+									    count_array(resresv_arr[i]->resv->resv_queue->jobs),
+									    check_running_job_in_reservation, NULL, 0);
+				collect_jobs_on_nodes(resresv_arr[i]->resv->resv_nodes, jobs_in_reservations,
+						      count_array(jobs_in_reservations), NO_FLAGS);
+				free(jobs_in_reservations);
+
+				for (int j = 0; resresv_arr[i]->resv->resv_nodes[j] != NULL; j++)
+					create_resource_assn_for_node(resresv_arr[i]->resv->resv_nodes[j], 1);
+
+				/* Sort the nodes to ensure correct job placement. */
+				qsort(resresv_arr[i]->resv->resv_nodes,
+				      count_array(resresv_arr[i]->resv->resv_nodes),
+				      sizeof(node_info *), multi_node_sort);
+			}
+			resresv_arr[i]->resv->rjob_state_change = 0;
 		}
 	}
 
@@ -956,6 +977,7 @@ new_resv_info()
 	rinfo->count = 0;
 	rinfo->is_standing = 0;
 	rinfo->is_running = 0;
+	rinfo->rjob_state_change = 0;
 	rinfo->occr_start_arr = NULL;
 	rinfo->partition = NULL;
 	rinfo->select_orig = NULL;
@@ -2342,6 +2364,10 @@ int will_confirm(resource_resv *resv, time_t server_time) {
 int remove_resv_from_server(resource_resv **resvs, resource_resv *resresv) {
 	resource_resv *sresv;
 	int num_resvs_removed = 0;
+
+	if (is_resresv_running(resresv))
+		for (int i = 0; resresv->ninfo_arr[i] != NULL; i++)
+			resresv->ninfo_arr[i]->num_run_resv--;
 
 	if (resresv->resv->is_standing && resresv->resv->resv_state != RESV_UNCONFIRMED) {
 		/* Remove all occurrences of the reservation */

@@ -476,7 +476,7 @@ void free_queue_list(queue_info *** queue_list);
 
 void add_req_list_to_assn(schd_resource *, resource_req *);
 
-int create_resource_assn_for_node(node_info *);
+int create_resource_assn_for_node(node_info *ninfo, int resv_node=0);
 
 int compare_resource_avail_list(schd_resource *r1, schd_resource *r2);
 int compare_resource_avail(schd_resource *r1, schd_resource *r2);

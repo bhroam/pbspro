@@ -194,4 +194,4 @@ int clust_primary_sock = -1;
 /* secondary socket descriptor to the server pool */
 int clust_secondary_sock = -1;
 time_t last_cycle_time;
-int got_configure = 0;
+int requery_universe = 0;

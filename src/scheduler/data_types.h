@@ -759,6 +759,7 @@ struct resv_info
 {
 	unsigned is_standing:1;		/* set to 1 for a standing reservation */
 	unsigned is_running:1;		/* the reservation is running (not necessarily in the running state) */
+	unsigned rjob_state_change:1;	/* a job in the reservation changed to or from the running state */
 	char *queuename;		/* the name of the queue */
 	char *rrule;			/* recurrence rule for standing reservations */
 	char *execvnodes_seq;		/* sequence of execvnodes for standing resvs */

@@ -4409,6 +4409,7 @@ combine_nspec_array(nspec **nspec_arr)
 
 		ns->end_of_chunk = 1;
 		ns->ninfo = nspec_arr[i]->ninfo;
+		ns->rank = nspec_arr[i]->rank;
 		ns->resreq = dup_resource_req_list(nspec_arr[i]->resreq);
 
 		for (j = i + 1; nspec_arr[j] != NULL; j++) {
