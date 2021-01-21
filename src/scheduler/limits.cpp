@@ -1290,7 +1290,7 @@ check_server_max_user_run(server_info *si, queue_info *qi, resource_resv *rr,
 	used = find_counts_elm(cts, user, NULL, NULL, NULL);
 	log_eventf(PBSEVENT_DEBUG4, PBS_EVENTCLASS_JOB, LOG_DEBUG, __func__,
 		"%s user %s max_*user_run (%d, %d), used %d",
-		rr->name, user, max_user_run, max_genuser_run, used);
+		rr->name.c_str(), user, max_user_run, max_genuser_run, used);
 
 	if (max_user_run != SCHD_INFINITY) {
 		if (max_user_run <= used) {
@@ -1360,7 +1360,7 @@ check_server_max_group_run(server_info *si, queue_info *qi, resource_resv *rr,
 	used = find_counts_elm(cts, group, NULL, NULL, NULL);
 	log_eventf(PBSEVENT_DEBUG4, PBS_EVENTCLASS_JOB, LOG_DEBUG, __func__,
 		"%s group %s max_*group_run (%d, %d), used %d",
-		rr->name, group, max_group_run, max_gengroup_run, used);
+		rr->name.c_str(), group, max_group_run, max_gengroup_run, used);
 
 	if (max_group_run != SCHD_INFINITY) {
 		if (max_group_run <= used) {
@@ -1414,7 +1414,7 @@ check_server_max_user_res(server_info *si, queue_info *qi, resource_resv *rr,
 		LI2RESCTX(si->liminfo));
 	if (ret != 0)
 		log_eventf(PBSEVENT_DEBUG4, PBS_EVENTCLASS_JOB, LOG_DEBUG, __func__,
-			   "%s check_max_user_res returned %d", rr->name, ret);
+			   "%s check_max_user_res returned %d", rr->name.c_str(), ret);
 	switch (ret) {
 		default:
 		case -1:
@@ -1470,7 +1470,7 @@ check_server_max_group_res(server_info *si, queue_info *qi, resource_resv *rr,
 		&rdef, LI2RESCTX(si->liminfo));
 	if (ret != 0)
 		log_eventf(PBSEVENT_DEBUG4, PBS_EVENTCLASS_JOB, LOG_DEBUG, __func__,
-			"%s check_max_group_res returned %d", rr->name, ret);
+			"%s check_max_group_res returned %d", rr->name.c_str(), ret);
 	switch (ret) {
 		default:
 		case -1:
@@ -1542,7 +1542,7 @@ check_queue_max_user_run(server_info *si, queue_info *qi, resource_resv *rr,
 	used = find_counts_elm(cts,  user, NULL, NULL, NULL);
 	log_eventf(PBSEVENT_DEBUG4, PBS_EVENTCLASS_JOB, LOG_DEBUG, __func__,
 		"%s user %s max_*user_run (%d, %d), used %d",
-		rr->name, user, max_user_run, max_genuser_run, used);
+		rr->name.c_str(), user, max_user_run, max_genuser_run, used);
 
 	if (max_user_run != SCHD_INFINITY) {
 		if (max_user_run <= used) {
@@ -1611,7 +1611,7 @@ check_queue_max_group_run(server_info *si, queue_info *qi, resource_resv *rr,
 	used = find_counts_elm(cts, group, NULL, NULL, NULL);
 	log_eventf(PBSEVENT_DEBUG4, PBS_EVENTCLASS_JOB, LOG_DEBUG, __func__,
 		"%s group %s max_*group_run (%d, %d), used %d",
-		rr->name, group, max_group_run, max_gengroup_run, used);
+		rr->name.c_str(), group, max_group_run, max_gengroup_run, used);
 
 	if (max_group_run != SCHD_INFINITY) {
 		if (max_group_run <= used) {
@@ -1664,7 +1664,7 @@ check_queue_max_user_res(server_info *si, queue_info *qi, resource_resv *rr,
 	ret = check_max_user_res(rr, cts, &rdef, LI2RESCTX(qi->liminfo));
 	if (ret != 0)
 		log_eventf(PBSEVENT_DEBUG4, PBS_EVENTCLASS_JOB, LOG_DEBUG, __func__,
-			"%s check_max_user_res returned %d", rr->name, ret);
+			"%s check_max_user_res returned %d", rr->name.c_str(), ret);
 
 	switch (ret) {
 		default:
@@ -1721,7 +1721,7 @@ check_queue_max_group_res(server_info *si, queue_info *qi, resource_resv *rr,
 	ret = check_max_group_res(rr, cts, &rdef, LI2RESCTX(qi->liminfo));
 	if (ret != 0)
 		log_eventf(PBSEVENT_DEBUG4, PBS_EVENTCLASS_JOB, LOG_DEBUG, __func__,
-			"%s check_max_group_res returned %d", rr->name, ret);
+			"%s check_max_group_res returned %d", rr->name.c_str(), ret);
 
 	switch (ret) {
 		default:
@@ -1803,7 +1803,7 @@ check_queue_max_res(server_info *si, queue_info *qi, resource_resv *rr,
 			used = used_res->amount;
 
 		log_eventf(PBSEVENT_DEBUG4, PBS_EVENTCLASS_JOB, LOG_DEBUG, __func__,
-			"%s max_res.%s %.1lf, used %.1lf", rr->name, res->name, max_res, used);
+			"%s max_res.%s %.1lf, used %.1lf", rr->name.c_str(), res->name, max_res, used);
 		if (used + req->amount > max_res) {
 			schderr_args_q_res(qi->name, NULL, NULL, err);
 			err->rdef = res->def;
@@ -1877,7 +1877,7 @@ check_server_max_res(server_info *si, queue_info *qi, resource_resv *rr,
 			used = used_res->amount;
 
 		log_eventf(PBSEVENT_DEBUG4, PBS_EVENTCLASS_JOB, LOG_DEBUG, __func__,
-			"%s max_res.%s %.1lf, used %.1lf", rr->name, res->name, max_res, used);
+			"%s max_res.%s %.1lf, used %.1lf", rr->name.c_str(), res->name, max_res, used);
 		if (used + req->amount > max_res) {
 			err->rdef = res->def;
 			return (SERVER_RESOURCE_LIMIT_REACHED);
@@ -2096,7 +2096,7 @@ check_queue_max_user_run_soft(server_info *si, queue_info *qi, resource_resv *rr
 
 	log_eventf(PBSEVENT_DEBUG4, PBS_EVENTCLASS_JOB, LOG_DEBUG, __func__,
 		"%s user %s max_*user_run_soft (%d, %d), used %d",
-		rr->name, user, max_user_run_soft, max_genuser_run_soft, used);
+		rr->name.c_str(), user, max_user_run_soft, max_genuser_run_soft, used);
 
 	if (max_user_run_soft != SCHD_INFINITY) {
 		if (max_user_run_soft < used) {
@@ -2168,7 +2168,7 @@ check_queue_max_group_run_soft(server_info *si, queue_info *qi,
 	used = find_counts_elm(qi->group_counts, group, NULL, &cnt, NULL);
 	log_eventf(PBSEVENT_DEBUG4, PBS_EVENTCLASS_JOB, LOG_DEBUG, __func__,
 		"%s group %s max_*group_run_soft (%d, %d), used %d",
-		rr->name, group, max_group_run_soft, max_gengroup_run_soft, used);
+		rr->name.c_str(), group, max_group_run_soft, max_gengroup_run_soft, used);
 
 	if (max_group_run_soft != SCHD_INFINITY) {
 		if (max_group_run_soft < used) {
@@ -2349,7 +2349,7 @@ check_server_max_user_run_soft(server_info *si, queue_info *qi,
 	used = find_counts_elm(si->user_counts, user, NULL, &cnt, NULL);
 	log_eventf(PBSEVENT_DEBUG4, PBS_EVENTCLASS_JOB, LOG_DEBUG, __func__,
 		"%s user %s max_*user_run_soft (%d, %d), used %d",
-		rr->name, user, max_user_run_soft, max_genuser_run_soft, used);
+		rr->name.c_str(), user, max_user_run_soft, max_genuser_run_soft, used);
 
 	if (max_user_run_soft != SCHD_INFINITY) {
 		if (max_user_run_soft < used) {
@@ -2423,7 +2423,7 @@ check_server_max_group_run_soft(server_info *si, queue_info *qi,
 
 	log_eventf(PBSEVENT_DEBUG4, PBS_EVENTCLASS_JOB, LOG_DEBUG, __func__,
 		"%s group %s max_*group_run_soft (%d, %d), used %d",
-		rr->name, group, max_group_run_soft, max_gengroup_run_soft, used);
+		rr->name.c_str(), group, max_group_run_soft, max_gengroup_run_soft, used);
 
 	if (max_group_run_soft != SCHD_INFINITY) {
 		if (max_group_run_soft < used) {
@@ -2559,7 +2559,7 @@ check_server_max_res_soft(server_info *si, queue_info *qi, resource_resv *rr)
 
 		log_eventf(PBSEVENT_DEBUG4, PBS_EVENTCLASS_JOB, LOG_DEBUG, __func__,
 			"%s max_res_soft.%s %.1lf, used %.1lf",
-			rr->name, res->name, max_res_soft, used);
+			rr->name.c_str(), res->name, max_res_soft, used);
 
 		if (max_res_soft < used) {
 			if (used_res != NULL)
@@ -2628,7 +2628,7 @@ check_queue_max_res_soft(server_info *si, queue_info *qi, resource_resv *rr)
 
 		log_eventf(PBSEVENT_DEBUG4, PBS_EVENTCLASS_JOB, LOG_DEBUG, __func__,
 			"%s max_res_soft.%s %.1lf, used %.1lf",
-			rr->name, res->name, max_res_soft, used);
+			rr->name.c_str(), res->name, max_res_soft, used);
 
 		if (max_res_soft < used) {
 			if (used_res != NULL)
@@ -2704,7 +2704,7 @@ check_max_group_res(resource_resv *rr, counts *cts_list,
 
 		log_eventf(PBSEVENT_DEBUG4, PBS_EVENTCLASS_JOB, LOG_DEBUG, __func__,
 			"%s group %s max_*group_res.%s (%.1lf, %.1lf), used %.1lf",
-			rr->name, group, res->name, max_group_res, max_gengroup_res, used);
+			rr->name.c_str(), group, res->name, max_group_res, max_gengroup_res, used);
 
 		if (max_group_res != SCHD_INFINITY) {
 			if (used + req->amount > max_group_res) {
@@ -2782,7 +2782,7 @@ check_max_group_res_soft(resource_resv *rr, counts *cts_list, void *limitctx, in
 		used = find_counts_elm(cts_list, group, res->def, NULL, &rescts);
 		log_eventf(PBSEVENT_DEBUG4, PBS_EVENTCLASS_JOB, LOG_DEBUG, __func__,
 			"%s group %s max_*group_res_soft.%s (%.1lf, %.1lf), used %.1lf",
-			rr->name, group, res->name, max_group_res_soft, max_gengroup_res_soft, used);
+			rr->name.c_str(), group, res->name, max_group_res_soft, max_gengroup_res_soft, used);
 
 		if (max_group_res_soft != SCHD_INFINITY) {
 			if (max_group_res_soft < used) {
@@ -2868,7 +2868,7 @@ check_max_user_res(resource_resv *rr, counts *cts_list, resdef **rdef,
 
 		log_eventf(PBSEVENT_DEBUG4, PBS_EVENTCLASS_JOB, LOG_DEBUG, __func__,
 			"%s user %s max_*user_res.%s (%.1lf, %.1lf), used %.1lf",
-			rr->name, user, res->name, max_user_res, max_genuser_res, used);
+			rr->name.c_str(), user, res->name, max_user_res, max_genuser_res, used);
 
 		if (max_user_res != SCHD_INFINITY) {
 			if (used + req->amount > max_user_res) {
@@ -2949,7 +2949,7 @@ check_max_user_res_soft(resource_resv **rr_arr, resource_resv *rr,
 
 		log_eventf(PBSEVENT_DEBUG4, PBS_EVENTCLASS_JOB, LOG_DEBUG, __func__,
 			"%s user %s max_*user_res_soft (%.1lf, %.1lf), used %.1lf",
-			rr->name, user, max_user_res_soft, max_genuser_res_soft, used);
+			rr->name.c_str(), user, max_user_res_soft, max_genuser_res_soft, used);
 
 		if (max_user_res_soft != SCHD_INFINITY) {
 			if (max_user_res_soft < used) {
@@ -3500,7 +3500,7 @@ check_max_project_res(resource_resv *rr, counts *cts_list,
 
 		log_eventf(PBSEVENT_DEBUG4, PBS_EVENTCLASS_JOB, LOG_DEBUG, __func__,
 			"%s project %s max_*project_res.%s (%.1lf, %.1lf), used %.1lf",
-			rr->name, project, res->name, max_project_res, max_genproject_res, used);
+			rr->name.c_str(), project, res->name, max_project_res, max_genproject_res, used);
 
 		if (max_project_res != SCHD_INFINITY) {
 			if (used + req->amount > max_project_res) {
@@ -3579,7 +3579,7 @@ check_max_project_res_soft(resource_resv *rr, counts *cts_list, void *limitctx, 
 		used = find_counts_elm(cts_list, project, res->def, NULL, &rescts);
 		log_eventf(PBSEVENT_DEBUG4, PBS_EVENTCLASS_JOB, LOG_DEBUG, __func__,
 			"%s project %s max_*project_res_soft.%s (%.1lf, %.1lf), used %.1lf",
-			rr->name, project, res->name, max_project_res_soft, max_genproject_res_soft, used);
+			rr->name.c_str(), project, res->name, max_project_res_soft, max_genproject_res_soft, used);
 
 		if (max_project_res_soft != SCHD_INFINITY) {
 			if (max_project_res_soft < used){
@@ -3648,7 +3648,7 @@ check_server_max_project_res(server_info *si, queue_info *qi, resource_resv *rr,
 		&rdef, LI2RESCTX(si->liminfo));
 	if (ret != 0) {
 		log_eventf(PBSEVENT_DEBUG4, PBS_EVENTCLASS_JOB, LOG_DEBUG, __func__,
-			"%s check_max_project_res returned %d", rr->name, ret);
+			"%s check_max_project_res returned %d", rr->name.c_str(), ret);
 	}
 	switch (ret) {
 		default:
@@ -3722,7 +3722,7 @@ check_server_max_project_run_soft(server_info *si, queue_info *qi,
 	used = find_counts_elm(si->project_counts, project, NULL, &cnt, NULL);
 	log_eventf(PBSEVENT_DEBUG4, PBS_EVENTCLASS_JOB, LOG_DEBUG, __func__,
 		"%s project %s max_*project_run_soft (%d, %d), used %d",
-		rr->name, project, max_project_run_soft, max_genproject_run_soft, used);
+		rr->name.c_str(), project, max_project_run_soft, max_genproject_run_soft, used);
 
 	if (max_project_run_soft != SCHD_INFINITY) {
 		if (max_project_run_soft < used) {
@@ -3816,7 +3816,7 @@ check_queue_max_project_res(server_info *si, queue_info *qi, resource_resv *rr,
 	ret = check_max_project_res(rr, cts, &rdef, LI2RESCTX(qi->liminfo));
 	if (ret != 0)
 		log_eventf(PBSEVENT_DEBUG4, PBS_EVENTCLASS_JOB, LOG_DEBUG, __func__,
-			"%s check_max_project_res returned %d", rr->name, ret);
+			"%s check_max_project_res returned %d", rr->name.c_str(), ret);
 	switch (ret) {
 		default:
 		case -1:
@@ -3888,7 +3888,7 @@ check_queue_max_project_run_soft(server_info *si, queue_info *qi,
 
 	log_eventf(PBSEVENT_DEBUG4, PBS_EVENTCLASS_JOB, LOG_DEBUG, __func__,
 		"%s project %s max_*project_run_soft (%d, %d), used %d",
-		rr->name, project, max_project_run_soft, max_genproject_run_soft, used);
+		rr->name.c_str(), project, max_project_run_soft, max_genproject_run_soft, used);
 
 	if (max_project_run_soft != SCHD_INFINITY) {
 		if (max_project_run_soft < used) {
@@ -4005,7 +4005,7 @@ check_server_max_project_run(server_info *si, queue_info *qi, resource_resv *rr,
 
 	log_eventf(PBSEVENT_DEBUG4, PBS_EVENTCLASS_JOB, LOG_DEBUG, __func__,
 		"%s project %s max_*project_run (%d, %d), used %d",
-		rr->name, project, max_project_run, max_genproject_run, used);
+		rr->name.c_str(), project, max_project_run, max_genproject_run, used);
 
 	if (max_project_run != SCHD_INFINITY) {
 		if (max_project_run <= used) {
@@ -4082,7 +4082,7 @@ check_queue_max_project_run(server_info *si, queue_info *qi, resource_resv *rr,
 
 	log_eventf(PBSEVENT_DEBUG4, PBS_EVENTCLASS_JOB, LOG_DEBUG, __func__,
 		"%s project %s max_*project_run (%d, %d), used %d",
-		rr->name, project, max_project_run, max_genproject_run, used);
+		rr->name.c_str(), project, max_project_run, max_genproject_run, used);
 
 	if (max_project_run != SCHD_INFINITY) {
 		if (max_project_run <= used) {

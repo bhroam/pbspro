@@ -3414,7 +3414,7 @@ resources_avail_on_vnode(resource_req *specreq_cons, node_info *node,
 							set_current_aoe(node, resresv->aoename);
 						if (resresv->is_job) {
 							log_eventf(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_NOTICE, resresv->name.c_str(),
-								"Vnode %s selected for provisioning with AOE %s", node->name, resresv->aoename);
+								"Vnode %s selected for provisioning with AOE %s", node->name.c_str(), resresv->aoename);
 						}
 					}
 
@@ -3430,7 +3430,7 @@ resources_avail_on_vnode(resource_req *specreq_cons, node_info *node,
 
 						if (resresv->is_job)
 							log_eventf(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_NOTICE, resresv->name.c_str(),
-								"Vnode %s selected for power with EOE %s", node->name, resresv->eoename);
+								"Vnode %s selected for power with EOE %s", node->name.c_str(), resresv->eoename);
 					}
 
 					if (num_chunks > num)
@@ -3656,7 +3656,7 @@ check_resources_for_node(resource_req *resreq, node_info *ninfo,
 				else {
 					ns = NULL;
 					log_eventf(PBSEVENT_SCHED, PBS_EVENTCLASS_SCHED, LOG_WARNING, resresv->name.c_str(),
-						"Event %s is a run/end event w/o nspec array, ignoring event", event->name);
+						"Event %s is a run/end event w/o nspec array, ignoring event", event->name.c_str());
 				}
 
 				is_run_event = (event->event_type == TIMED_RUN_EVENT);

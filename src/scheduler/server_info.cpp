@@ -3378,7 +3378,7 @@ find_indirect_resource(schd_resource *res, node_info **nodes)
 				error = 1;
 				log_eventf(PBSEVENT_DEBUG, PBS_EVENTCLASS_NODE, LOG_DEBUG, __func__,
 						"Resource %s is indirect, and does not exist on indirect node %s",
-						res->name, ninfo->name);
+						res->name, ninfo->name.c_str());
 			}
 		} else {
 			error = 1;
