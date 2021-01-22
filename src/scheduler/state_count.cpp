@@ -110,12 +110,6 @@ count_states(resource_resv **jobs, state_count *sc)
 
 	for (i = 0; jobs[i] != NULL; i++)
 		job_state_count_add(sc, jobs[i], 1);
-
-	sc->total = sc->queued + sc->running + sc->transit +
-		sc->exiting + sc->held + sc->waiting +
-		sc->suspended + sc->userbusy + sc->begin +
-		sc->expired + sc->finished + sc->invalid;
-
 }
 
 void job_state_count_add(state_count *sc, resource_resv *job, int count) 
@@ -124,31 +118,32 @@ void job_state_count_add(state_count *sc, resource_resv *job, int count)
 		return;
 
 	if (job->job->is_queued)
-		sc->queued++;
+		sc->queued += count;
 	else if (job->job->is_running)
-		sc->running++;
+		sc->running += count;
 	else if (job->job->is_transit)
-		sc->transit++;
+		sc->transit += count;
 	else if (job->job->is_exiting)
-		sc->exiting++;
+		sc->exiting += count;
 	else if (job->job->is_held)
-		sc->held++;
+		sc->held += count;
 	else if (job->job->is_waiting)
-		sc->waiting++;
+		sc->waiting += count;
 	else if (job->job->is_suspended)
-		sc->suspended++;
+		sc->suspended += count;
 	else if (job->job->is_userbusy)
-		sc->userbusy++;
+		sc->userbusy += count;
 	else if (job->job->is_begin)
-		sc->begin++;
+		sc->begin += count;
 	else if (job->job->is_expired)
-		sc->expired++;
+		sc->expired += count;
 	else if (job->job->is_finished)
-		sc->finished++;
+		sc->finished += count;
 	else {
-		sc->invalid++;
+		sc->invalid += count;
 		log_event(PBSEVENT_JOB, PBS_EVENTCLASS_JOB, LOG_INFO, job->name.c_str(), "Job in unknown state");
 	}
+	sc->total += count;
 }
 
 /**

@@ -657,7 +657,7 @@ find_resource_resv(resource_resv **resresv_arr, const std::string& name)
 	if (resresv_arr == NULL)
 		return NULL;
 
-	for (i = 0; resresv_arr[i] != NULL && resresv_arr[i]->name != name;i++)
+	for (i = 0; resresv_arr[i] != NULL && resresv_arr[i]->name != name; i++)
 		;
 
 	return resresv_arr[i];

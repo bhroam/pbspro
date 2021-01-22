@@ -529,15 +529,12 @@ query_jobs(status *policy, int pbs_sd, queue_info *qinfo, resource_resv **pjobs,
 	static struct attrl *attrib = NULL;
 
 	struct batch_status *jobs;
-	resource_resv **resresv_arr;
+	resource_resv **resresv_arr = NULL;
 	server_info *sinfo;
-	int i;
 	struct batch_status *cur_job;
 	schd_error *err;
 	time_t server_time;
 	char timebuf[128];
-	int num_jobs = 0;
-	int num_prev_jobs;
 
 	const char *jobattrs[] = {
 		ATTR_p,
@@ -589,7 +586,7 @@ query_jobs(status *policy, int pbs_sd, queue_info *qinfo, resource_resv **pjobs,
 		opl[1].next = &opl2[0];
 
 	if (attrib == NULL) {
-		for (i = 0; jobattrs[i] != NULL; i++) {
+		for (int i = 0; jobattrs[i] != NULL; i++) {
 			struct attrl *temp_attrl = NULL;
 
 			temp_attrl = new_attrl();
@@ -613,27 +610,6 @@ query_jobs(status *policy, int pbs_sd, queue_info *qinfo, resource_resv **pjobs,
 		return pjobs;
 	}
 
-	/* count the number of new jobs */
-	cur_job = jobs;
-	while (cur_job != NULL) {
-		num_jobs++;
-		cur_job = cur_job->next;
-	}
-
-	/* if there are previous jobs, count those too */
-	num_prev_jobs = count_array(pjobs);
-	num_jobs += num_prev_jobs;
-
-	/* allocate enough space for all the jobs and the NULL sentinal */
-	resresv_arr = static_cast<resource_resv **> (realloc(pjobs, sizeof(resource_resv *) * (num_jobs + 1)));
-
-	if (resresv_arr == NULL) {
-		log_err(errno, __func__, MEM_ERR_MSG);
-		pbs_statfree(jobs);
-		return pjobs;
-	}
-	resresv_arr[num_prev_jobs] = NULL;
-
 	err = new_schd_error();
 	if(err == NULL) {
 		log_err(errno, __func__, MEM_ERR_MSG);
@@ -642,10 +618,11 @@ query_jobs(status *policy, int pbs_sd, queue_info *qinfo, resource_resv **pjobs,
 	}
 
 	sinfo = qinfo->server;
+	resresv_arr = pjobs;
 
 	server_time = sinfo->server_time;
 
-	for (i = num_prev_jobs, cur_job = jobs; cur_job != NULL; cur_job = cur_job->next) {
+	for (cur_job = jobs; cur_job != NULL; cur_job = cur_job->next) {
 		char *selectspec = NULL;
 		resource_resv *resresv;
 		resource_req *req;
@@ -679,7 +656,6 @@ query_jobs(status *policy, int pbs_sd, queue_info *qinfo, resource_resv **pjobs,
 			if (job != NULL) {
 				remove_ptr_from_array(resresv_arr, job);
 				sinfo->jobs_umap.erase(job->name);
-				i--;
 			}
 
 			delete resresv;
@@ -689,13 +665,12 @@ query_jobs(status *policy, int pbs_sd, queue_info *qinfo, resource_resv **pjobs,
 
 		/* Make sure scheduler does not process a subjob in undesirable state*/
 		if (resresv->job->is_subjob && !resresv->job->is_running && !resresv->job->is_exiting &&
-			!resresv->job->is_suspended && !resresv->job->is_provisioning) {
+			!resresv->job->is_suspended && !resresv->job->is_finished && !resresv->job->is_provisioning) {
 			log_event(PBSEVENT_SCHED, PBS_EVENTCLASS_RESV, LOG_DEBUG,
 				resresv->name.c_str(), "Subjob found in undesirable state, ignoring this job");
 			if (job != NULL) {
 				sinfo->jobs_umap.erase(resresv->name);
 				remove_ptr_from_array(resresv_arr, job);
-				i--;
 			}
 
 			delete resresv;
@@ -841,8 +816,7 @@ query_jobs(status *policy, int pbs_sd, queue_info *qinfo, resource_resv **pjobs,
 			clear_schd_error(err);
 		}
 		if (resresv != job) {
-			resresv_arr[i++] = resresv;
-			resresv_arr[i] = NULL;
+			resresv_arr = static_cast<resource_resv **>(add_ptr_to_array(resresv_arr, resresv));
 			qinfo->server->jobs_umap[resresv->name] = resresv;
 		}
 	}
@@ -1107,6 +1081,7 @@ query_job(struct batch_status *job, server_info *sinfo, resource_resv *prev_job,
 						sj = find_resource_resv(qinfo->jobs, sj_name);
 						if (sj != NULL) {
 							remove_ptr_from_array(qinfo->jobs, sj);
+							qinfo->server->jobs_umap.erase(sj_name);
 							delete sj;
 						}
 					}
