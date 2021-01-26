@@ -367,13 +367,12 @@ init_scheduling_cycle(status *policy, int pbs_sd, server_info *sinfo)
 
 						if (sinfo->running_jobs[j] != NULL &&
 							sinfo->running_jobs[j]->job != NULL) {
-							long now, then;
+							double now, then;
 							/* just in case the delta is negative just add 0 */
 							now = formula_evaluate(conf.fairshare_res, sinfo->running_jobs[j], sinfo->running_jobs[j]->job->resused);
 							then = formula_evaluate(conf.fairshare_res, sinfo->running_jobs[j], last_running[i].resused);
 							delta = IF_NEG_THEN_ZERO(now - then);
-							log_eventf(PBSEVENT_DEBUG, PBS_EVENTCLASS_JOB, LOG_DEBUG, sinfo->running_jobs[j]->name.c_str(), "now: %ld then: %ld delta: %lf", now, then, delta);
-							log_eventf(PBSEVENT_DEBUG, PBS_EVENTCLASS_JOB, LOG_DEBUG, sinfo->running_jobs[j]->name.c_str(), "entity: %s", user->name);
+							log_eventf(PBSEVENT_DEBUG, PBS_EVENTCLASS_JOB, LOG_DEBUG, sinfo->running_jobs[j]->name.c_str(), "entity: %s now: %lf then: %lf delta: %lf", user->name, now, then, delta);
 
 							gpath = user->gpath;
 							while (gpath != NULL) {

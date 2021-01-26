@@ -665,7 +665,8 @@ query_jobs(status *policy, int pbs_sd, queue_info *qinfo, resource_resv **pjobs,
 
 		/* Make sure scheduler does not process a subjob in undesirable state*/
 		if (resresv->job->is_subjob && !resresv->job->is_running && !resresv->job->is_exiting &&
-			!resresv->job->is_suspended && !resresv->job->is_finished && !resresv->job->is_provisioning) {
+			!resresv->job->is_suspended && !resresv->job->is_expired && 
+			!resresv->job->is_finished && !resresv->job->is_provisioning) {
 			log_event(PBSEVENT_SCHED, PBS_EVENTCLASS_RESV, LOG_DEBUG,
 				resresv->name.c_str(), "Subjob found in undesirable state, ignoring this job");
 			if (job != NULL) {

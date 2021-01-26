@@ -1216,7 +1216,7 @@ set_job_history_enable(attribute *pattr, void *pobject, int actmode)
 	if ((actmode == ATR_ACTION_ALTER) ||
 		(actmode == ATR_ACTION_RECOV)) {
 
-		svr_history_enable = pattr->at_val.at_long;
+		svr_history_enable = 1;
 		log_eventf(PBSEVENT_DEBUG, PBS_EVENTCLASS_SERVER, LOG_DEBUG, "job_history", "svr_history_enable = %ld", svr_history_enable);
 		if (svr_history_enable) {
 			(void)set_task(WORK_Timed,

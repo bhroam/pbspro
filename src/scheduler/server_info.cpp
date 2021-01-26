@@ -4117,9 +4117,9 @@ create_resource_assn_for_node(node_info *ninfo, int resv_node)
 			}
 		}
 
-		if (ncpus_res != NULL && ncpus_res->assigned < ncpus_res->avail)
-			remove_node_state(ninfo, ND_jobbusy);
 	}
+	if (ncpus_res != NULL && ncpus_res->assigned < ncpus_res->avail)
+		remove_node_state(ninfo, ND_jobbusy);
 
 	return 1;
 }
