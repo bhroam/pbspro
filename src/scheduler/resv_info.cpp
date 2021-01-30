@@ -2256,12 +2256,8 @@ create_resv_nodes(nspec * *nspec_arr, server_info *sinfo)
 				nodes[i] = dup_node_info(svr_node, sinfo, DUP_INDIRECT);
 				nodes[i]->svr_node = svr_node;
 
-				/* reservation nodes in state resv_exclusive can be assigned to jobs
-				 * within the reservation
-				 */
-				if (nodes[i]->is_resv_exclusive)
-					remove_node_state(nodes[i], ND_resv_exclusive);
-				
+				set_node_info_state(nodes[i], ND_free);
+
 				free(nodes[i]->run_resvs_arr);
 				nodes[i]->run_resvs_arr = NULL;
 

@@ -965,6 +965,11 @@ query_job(struct batch_status *job, server_info *sinfo, resource_resv *prev_job,
 			if ((is_running && !resresv->job->is_running) || (!is_running && resresv->job->is_running))
 				if (resresv->job->resv != NULL)
 					resresv->job->resv->resv->rjob_state_change = 1;
+			if (is_running && !resresv->job->is_running) {
+				resresv->start = UNSPECIFIED;
+				resresv->end = UNSPECIFIED;
+				resresv->job->stime = UNSPECIFIED;
+			}
 		} else if (!strcmp(attrp->name, ATTR_substate)) {
 			if (!strcmp(attrp->value, SUSP_BY_SCHED_SUBSTATE))
 				resresv->job->is_susp_sched = 1;

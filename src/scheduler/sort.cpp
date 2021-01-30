@@ -1142,13 +1142,13 @@ cmp_job_preemption_time_asc(const void *j1, const void *j2)
 	 * If both jobs are preempted, one which is preempted first gets priority
 	 */
 	if (r1->job->time_preempted == UNSPECIFIED &&
-		r2->job->time_preempted ==UNSPECIFIED)
+		r2->job->time_preempted == UNSPECIFIED)
 		return 0;
 	else if (r1->job->time_preempted != UNSPECIFIED &&
-		r2->job->time_preempted ==UNSPECIFIED)
+		r2->job->time_preempted == UNSPECIFIED)
 		return -1;
 	else if (r1->job->time_preempted == UNSPECIFIED &&
-		r2->job->time_preempted !=UNSPECIFIED)
+		r2->job->time_preempted != UNSPECIFIED)
 		return 1;
 
 	if (r1->job->time_preempted < r2->job->time_preempted)
