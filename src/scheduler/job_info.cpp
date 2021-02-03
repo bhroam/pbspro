@@ -969,6 +969,10 @@ query_job(struct batch_status *job, server_info *sinfo, resource_resv *prev_job,
 				resresv->start = UNSPECIFIED;
 				resresv->end = UNSPECIFIED;
 				resresv->job->stime = UNSPECIFIED;
+				free_nspecs(resresv->nspec_arr);
+				resresv->nspec_arr = NULL;
+				free(resresv->ninfo_arr);
+				resresv->ninfo_arr = NULL;
 			}
 		} else if (!strcmp(attrp->name, ATTR_substate)) {
 			if (!strcmp(attrp->value, SUSP_BY_SCHED_SUBSTATE))
@@ -5354,8 +5358,8 @@ void set_job_times(int pbs_sd, resource_resv *resresv, time_t server_time)
 		start = resresv->job->stime;
 
 		/* if a job is exiting, then its end time can be more closely
-			 * estimated by setting it to now + EXITING_TIME
-			 */
+		 * estimated by setting it to now + EXITING_TIME
+		 */
 		if (resresv->job->is_exiting)
 			end = server_time + EXITING_TIME;
 		/* Normal Case: Job's end is start + duration and it ends in the future */
