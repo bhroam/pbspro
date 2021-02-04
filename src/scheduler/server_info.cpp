@@ -120,17 +120,18 @@
 #include <signal.h>
 #include <sys/wait.h>
 
+#include "constant.h"
+#include "config.h"
+#include "pbs_entlim.h"
 #include "pbs_ifl.h"
 #include "pbs_error.h"
 #include "log.h"
 #include "pbs_share.h"
 #include "libpbs.h"
 #include "server_info.h"
-#include "constant.h"
 #include "queue_info.h"
 #include "job_info.h"
 #include "misc.h"
-#include "config.h"
 #include "node_info.h"
 #include "globals.h"
 #include "resv_info.h"

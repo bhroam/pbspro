@@ -46,9 +46,12 @@
 #include "constant.h"
 
 /* Modes passed to update_total_counts_on_run() */
-#define SERVER 1
-#define QUEUE  2
-#define ALL    3
+enum counts_on_run {
+	SERVER = 1,
+	QUEUE = 2,
+	ALL = 3
+};
+
 /*
  *      query_server - creates a structure of arrays consisting of a server
  *                      and all the queues and jobs that reside in that server
