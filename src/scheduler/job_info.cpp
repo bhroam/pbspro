@@ -973,6 +973,8 @@ query_job(struct batch_status *job, server_info *sinfo, resource_resv *prev_job,
 				resresv->nspec_arr = NULL;
 				free(resresv->ninfo_arr);
 				resresv->ninfo_arr = NULL;
+				free_selspec(resresv->execselect);
+				resresv->execselect = NULL;
 			}
 		} else if (!strcmp(attrp->name, ATTR_substate)) {
 			if (!strcmp(attrp->value, SUSP_BY_SCHED_SUBSTATE))
