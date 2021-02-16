@@ -2580,6 +2580,7 @@ dup_job_info(job_info *ojinfo, queue_info *nqinfo, server_info *nsinfo)
 	njinfo->stime = ojinfo->stime;
 	njinfo->preempt = ojinfo->preempt;
 	njinfo->preempt_status = ojinfo->preempt_status;
+	njinfo->time_preempted = ojinfo->time_preempted;
 	njinfo->peer_sd = ojinfo->peer_sd;
 	njinfo->job_id = ojinfo->job_id;
 	njinfo->est_start_time = ojinfo->est_start_time;
