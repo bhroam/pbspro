@@ -973,6 +973,8 @@ query_job(struct batch_status *job, server_info *sinfo, resource_resv *prev_job,
 				resresv->nspec_arr = NULL;
 				free(resresv->ninfo_arr);
 				resresv->ninfo_arr = NULL;
+				free_selspec(resresv->execselect);
+				resresv->execselect = NULL;
 			}
 		} else if (!strcmp(attrp->name, ATTR_substate)) {
 			if (!strcmp(attrp->value, SUSP_BY_SCHED_SUBSTATE))
@@ -2578,6 +2580,7 @@ dup_job_info(job_info *ojinfo, queue_info *nqinfo, server_info *nsinfo)
 	njinfo->stime = ojinfo->stime;
 	njinfo->preempt = ojinfo->preempt;
 	njinfo->preempt_status = ojinfo->preempt_status;
+	njinfo->time_preempted = ojinfo->time_preempted;
 	njinfo->peer_sd = ojinfo->peer_sd;
 	njinfo->job_id = ojinfo->job_id;
 	njinfo->est_start_time = ojinfo->est_start_time;
