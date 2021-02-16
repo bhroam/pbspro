@@ -331,7 +331,6 @@ query_node_info(struct batch_status *node, server_info *sinfo, node_info *ninfo)
 
 	if (ninfo == NULL) {
 		ninfo = new node_info(node->name);
-		ninfo->rank = get_sched_rank();
 
 		ninfo->server = sinfo;
 	}
@@ -578,6 +577,7 @@ node_info::node_info(const char *nname): name(nname)
 #endif
 	this->partition = NULL;
 	this->np_arr = NULL;
+	this->rank = get_sched_rank();
 }
 
 /**
@@ -5344,7 +5344,7 @@ sim_exclhost_func(timed_event *te, void *arg1, void *arg2)
 	resresv = (resource_resv*) arg1;
 	ninfo = (node_info*) arg2;
 	future_resresv = (resource_resv*) te->event_ptr;
-	if (find_nspec_by_rank(future_resresv->nspec_arr, ninfo->rank) ==NULL)
+	if (find_nspec_by_rank(future_resresv->nspec_arr, ninfo->rank) == NULL)
 		return 0; /* event does not affect the node */
 
 	if (is_exclhost(future_resresv->place_spec, ninfo->sharing) ||

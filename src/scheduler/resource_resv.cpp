@@ -2509,7 +2509,7 @@ in_runnable_state(resource_resv *resresv)
 	if (resresv == NULL)
 		return 0;
 
-	if (resresv->is_job && resresv->job !=NULL) {
+	if (resresv->is_job && resresv->job != NULL) {
 		if (resresv->job->is_array) {
 			if (range_next_value(resresv->job->queued_subjobs, -1) >= 0 ) {
 				if (resresv->job->is_begin || resresv->job->is_queued)

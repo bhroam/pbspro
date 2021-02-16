@@ -722,9 +722,6 @@ node_sort_cmp(const void *vp1, const void *vp2, struct sort_info *si, enum sort_
 			break;
 	}
 
-	if (v1 == v2)
-		return 0;
-
 	if (si->order == ASC) {
 		if (v1 < v2)
 			return -1;
@@ -742,10 +739,11 @@ node_sort_cmp(const void *vp1, const void *vp2, struct sort_info *si, enum sort_
 		else if (v1 > v2)
 			return -1;
 		else {
+			// Always sort rank in ascending order so if all things are equal, nodes are sorted in pbsnodes order
 			if (rank1 < rank2)
-				return 1;
-			else
 				return -1;
+			else
+				return 1;
 		}
 	}
 }

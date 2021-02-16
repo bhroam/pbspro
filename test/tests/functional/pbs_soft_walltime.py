@@ -997,7 +997,7 @@ e.accept()
         self.server.expect(JOB, {'job_state': 'R'}, id=jid)
 
         self.logger.info("Wait till the soft_walltime is extended once")
-        time.sleep(9)
+        time.sleep(11)
         self.server.manager(MGR_CMD_SET, SERVER, {'scheduling': 'True'})
 
         self.server.expect(JOB, {'estimated.soft_walltime': 8}, op=GT,
