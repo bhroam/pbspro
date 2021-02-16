@@ -227,6 +227,21 @@ query_queues(status *policy, int pbs_sd, server_info *sinfo)
 			}
 
 			if (ret != QUEUE_NOT_EXEC) {
+				clear_schd_error(sch_err);
+				set_schd_error_codes(sch_err, NOT_RUN, ret);
+				if (qinfo->is_ok_to_run == 0) {
+					translate_fail_code(sch_err, comment, log_msg);
+					update_jobs_cant_run(pbs_sd, qinfo->jobs, NULL, sch_err, START_WITH_JOB);
+				} else {
+					if (qinfo->jobs != NULL) {
+						for (j = 0; qinfo->jobs[j] != NULL; j++)
+							if (in_runnable_state(qinfo->jobs[j]) && !qinfo->jobs[j]->job->no_fairshare)
+								qinfo->jobs[j]->can_not_run = 0;
+							else
+								qinfo->jobs[j]->can_not_run = 1;
+					}
+				}
+
 				/* get all the jobs which reside in the queue */
 				qinfo->jobs = query_jobs(policy, pbs_sd, qinfo, qinfo->jobs, qinfo->name);
 
@@ -252,21 +267,6 @@ query_queues(status *policy, int pbs_sd, server_info *sinfo)
 							/* get peered jobs */
 							qinfo->jobs = query_jobs(policy, peer_sd, qinfo, qinfo->jobs, conf.peer_queues[j].remote_queue);
 						}
-					}
-				}
-
-				clear_schd_error(sch_err);
-				set_schd_error_codes(sch_err, NOT_RUN, ret);
-				if (qinfo->is_ok_to_run == 0) {
-					translate_fail_code(sch_err, comment, log_msg);
-					update_jobs_cant_run(pbs_sd, qinfo->jobs, NULL, sch_err, START_WITH_JOB);
-				} else {
-					if (qinfo->jobs != NULL) {
-						for (j = 0; qinfo->jobs[j] != NULL; j++)
-							if (in_runnable_state(qinfo->jobs[j]))
-								qinfo->jobs[j]->can_not_run = 0;
-							else
-								qinfo->jobs[j]->can_not_run = 1;
 					}
 				}
 

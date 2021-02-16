@@ -716,7 +716,8 @@ query_jobs(status *policy, int pbs_sd, queue_info *qinfo, resource_resv **pjobs,
 		else if (resresv->nspec_arr != NULL)
 			selectspec = create_select_from_nspec(resresv->nspec_arr);
 
-		if (resresv->nspec_arr != NULL) {
+		if (selectspec != NULL) {
+			free_selspec(resresv->execselect);
 			resresv->execselect = parse_selspec(selectspec);
 			free(selectspec);
 		}
@@ -776,10 +777,13 @@ query_jobs(status *policy, int pbs_sd, queue_info *qinfo, resource_resv **pjobs,
 		/* if the job's fairshare entity has no percentage of the machine,
 		 * the job can not run if enforce_no_shares is set
 		 */
-		if (policy->fair_share && conf.enforce_no_shares) {
+		if (policy->fair_share && conf.enforce_no_shares && !resresv->job->no_fairshare) {
 			if (resresv->job->ginfo != NULL &&
 			resresv->job->ginfo->tree_percentage == 0) {
 				set_schd_error_codes(err, NEVER_RUN, NO_FAIRSHARES);
+				resresv->job->no_fairshare = 1;
+				update_job_can_not_run(pbs_sd, resresv, err);
+				clear_schd_error(err);
 			}
 		}
 
@@ -812,10 +816,9 @@ query_jobs(status *policy, int pbs_sd, queue_info *qinfo, resource_resv **pjobs,
 			set_schd_error_codes(err, NOT_RUN, NO_NODE_RESOURCES);
 #endif
 
-		if (err->error_code != SUCCESS) {
-			update_job_can_not_run(pbs_sd, resresv, err);
-			clear_schd_error(err);
-		}
+		if (resresv->can_not_run && in_runnable_state(resresv) && !resresv->job->no_fairshare)
+			resresv->can_not_run = 0;
+
 		if (resresv != job) {
 			resresv_arr = static_cast<resource_resv **>(add_ptr_to_array(resresv_arr, resresv));
 			qinfo->server->jobs_umap[resresv->name] = resresv;
@@ -969,12 +972,14 @@ query_job(struct batch_status *job, server_info *sinfo, resource_resv *prev_job,
 				resresv->start = UNSPECIFIED;
 				resresv->end = UNSPECIFIED;
 				resresv->job->stime = UNSPECIFIED;
-				free_nspecs(resresv->nspec_arr);
-				resresv->nspec_arr = NULL;
-				free(resresv->ninfo_arr);
-				resresv->ninfo_arr = NULL;
 				free_selspec(resresv->execselect);
 				resresv->execselect = NULL;
+				if (!resresv->job->is_suspended) {
+					free_nspecs(resresv->nspec_arr);
+					resresv->nspec_arr = NULL;
+					free(resresv->ninfo_arr);
+					resresv->ninfo_arr = NULL;
+				}
 			}
 		} else if (!strcmp(attrp->name, ATTR_substate)) {
 			if (!strcmp(attrp->value, SUSP_BY_SCHED_SUBSTATE))
@@ -1210,10 +1215,6 @@ query_job(struct batch_status *job, server_info *sinfo, resource_resv *prev_job,
 	else
 		resresv->will_use_multinode = 0;
 	
-	if (in_runnable_state(resresv))
-		resresv->can_not_run = 0;
-	
-
 	return resresv;
 }
 
@@ -1248,6 +1249,7 @@ new_job_info()
 	jinfo->eligible_time = 0;
 	jinfo->can_not_preempt = 0;
 	jinfo->topjob_ineligible = 0;
+	jinfo->no_fairshare = 0;
 
 	jinfo->is_starving = 0;
 	jinfo->is_array = 0;
@@ -2570,6 +2572,7 @@ dup_job_info(job_info *ojinfo, queue_info *nqinfo, server_info *nsinfo)
 	njinfo->topjob_ineligible = ojinfo->topjob_ineligible;
 	njinfo->is_checkpointed = ojinfo->is_checkpointed;
 	njinfo->is_provisioning = ojinfo->is_provisioning;
+	njinfo->no_fairshare = ojinfo->no_fairshare;
 
 	njinfo->can_checkpoint = ojinfo->can_checkpoint;
 	njinfo->can_requeue    = ojinfo->can_requeue;
@@ -5389,6 +5392,8 @@ void set_job_times(int pbs_sd, resource_resv *resresv, time_t server_time)
 		resresv->end = end;
 	}
 	resresv->duration = duration;
+
+	log_eventf(PBSEVENT_DEBUG, PBS_EVENTCLASS_JOB, LOG_DEBUG, resresv->name.c_str(), "start: %ld end: %ld duration: %ld", resresv->start, resresv->end, resresv->duration);
 }
 
 /**

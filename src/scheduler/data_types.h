@@ -577,6 +577,7 @@ struct job_info
 	unsigned is_provisioning:1;	/* job is provisioning */
 	unsigned is_preempted:1;	/* job is preempted */
 	unsigned topjob_ineligible:1;	/* Job is ineligible to be a top job */
+	bool no_fairshare : 1;		/* Entity is not in the resource_group file */
 
 	char *job_name;			/* job name attribute (qsub -N) */
 	char *svr_inst_id;
