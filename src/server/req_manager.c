@@ -1434,8 +1434,6 @@ mgr_server_unset(struct batch_request *preq, conn_t *conn)
 	svrattrl *plist;
 	int	  rc;
 
-	log_event(PBSEVENT_ADMIN, PBS_EVENTCLASS_SERVER, LOG_NOTICE, "job_history", "foo");
-
 	plist = (svrattrl *)GET_NEXT(preq->rq_ind.rq_manager.rq_attr);
 
 	/* Check unsetting pbs_license_info,			*/
