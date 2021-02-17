@@ -266,6 +266,7 @@ query_nodes(int pbs_sd, server_info *sinfo)
 			ninfo = found->second;
 		
 		if (cur_node->attribs != NULL) {
+			node_info *tmp_ninfo;
 			/* get node info from the batch_status */
 			if ((ninfo = query_node_info(cur_node, sinfo, ninfo)) == NULL) {
 				pbs_statfree(nodes);
@@ -319,8 +320,9 @@ query_nodes(int pbs_sd, server_info *sinfo)
  *
  */
 node_info *
-query_node_info(struct batch_status *node, server_info *sinfo, node_info *ninfo)
+query_node_info(struct batch_status *node, server_info *sinfo, node_info *prev_ninfo)
 {
+	node_info *ninfo;
 	struct attrl *attrp;		/* used to cycle though attribute list */
 	schd_resource *res;		/* used to set resources in res list */
 	sch_resource_t count;		/* used to convert str->num */
@@ -329,11 +331,12 @@ query_node_info(struct batch_status *node, server_info *sinfo, node_info *ninfo)
 	time_t expiry = 0;
 
 
-	if (ninfo == NULL) {
+	if (prev_ninfo == NULL) {
 		ninfo = new node_info(node->name);
 
 		ninfo->server = sinfo;
-	}
+	} else
+		ninfo = prev_ninfo;
 
 	attrp = node->attribs;
 	for (attrp = node->attribs; attrp != NULL; attrp = attrp->next) {
@@ -351,8 +354,10 @@ query_node_info(struct batch_status *node, server_info *sinfo, node_info *ninfo)
 		else if (!strcmp(attrp->name, ATTR_server_inst_id)) {
 			ninfo->svr_inst_id = string_dup(attrp->value);
 			if (ninfo->svr_inst_id == NULL) {
-				delete ninfo;
+				if (ninfo != prev_ninfo)
+					delete ninfo;
 				return NULL;
+
 			}
 		}
 
@@ -361,7 +366,9 @@ query_node_info(struct batch_status *node, server_info *sinfo, node_info *ninfo)
 			if (ninfo->mom != NULL)
 				free(ninfo->mom);
 			if ((ninfo->mom = string_dup(attrp->value)) == NULL) {
-				delete ninfo;
+				if (ninfo != prev_ninfo)
+					delete ninfo;
+
 				return NULL;
 			}
 		}
@@ -371,7 +378,8 @@ query_node_info(struct batch_status *node, server_info *sinfo, node_info *ninfo)
 			ninfo->partition = string_dup(attrp->value);
 			if (ninfo->partition == NULL) {
 				log_err(errno, __func__, MEM_ERR_MSG);
-				return NULL;
+				if (ninfo != prev_ninfo)
+					return NULL;
 			}
 		} else if (!strcmp(attrp->name, ATTR_NODE_jobs)) {
 			if (ninfo->jobs != NULL)
@@ -431,7 +439,8 @@ query_node_info(struct batch_status *node, server_info *sinfo, node_info *ninfo)
 					ninfo->res = res;
 
 				if (set_resource(res, attrp->value, RF_AVAIL) == 0) {
-					delete ninfo;
+					if (ninfo != prev_info)
+						delete ninfo;
 					ninfo = NULL;
 					break;
 				}
@@ -450,7 +459,8 @@ query_node_info(struct batch_status *node, server_info *sinfo, node_info *ninfo)
 				ninfo->res = res;
 			if (res != NULL) {
 				if (set_resource(res, attrp->value, RF_ASSN) == 0) {
-					delete ninfo;
+					if (ninfo != prev_ninfo)
+						delete ninfo;
 					ninfo = NULL;
 					break;
 				}

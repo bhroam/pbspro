@@ -52,7 +52,7 @@ node_info **query_nodes(int pbs_sd, server_info *sinfo);
  *      query_node_info - collect information from a batch_status and
  *                        put it in a node_info struct for easier access
  */
-node_info *query_node_info(struct batch_status *node, server_info *sinfo, node_info *ninfo);
+node_info *query_node_info(struct batch_status *node, server_info *sinfo, node_info *prev_ninfo);
 
 /*
  * pthread routine for freeing up a node_info array

@@ -387,8 +387,7 @@ query_server(status *pol, int pbs_sd, server_info *sinfo)
 	sinfo->calendar = create_event_list(sinfo);
 
 	sinfo->running_jobs =
-		resource_resv_filter(sinfo->jobs, sinfo->sc.total, check_run_job,
-		NULL, FILTER_FULL);
+		resource_resv_filter(sinfo->jobs, sinfo->sc.total, check_run_job, NULL, FILTER_FULL);
 	sinfo->exiting_jobs = resource_resv_filter(sinfo->jobs,
 		sinfo->sc.total, check_exit_job, NULL, 0);
 	if (sinfo->running_jobs == NULL || sinfo->exiting_jobs == NULL) {
@@ -1311,7 +1310,7 @@ clear_server_info_for_query(server_info *sinfo)
 	sinfo->has_nonCPU_licenses = 0;
 	sinfo->use_hard_duration = 0;
 	sinfo->num_parts = 0;
-	if (sinfo->res != NULL)
+	if (sinfo->res != NULL) 
 		free_resource_list(sinfo->res);
 	sinfo->res = NULL;
 	if (sinfo->npc_arr != NULL)
@@ -1357,10 +1356,12 @@ clear_server_info_for_query(server_info *sinfo)
 
 	if (sinfo->running_jobs != NULL)
 		free(sinfo->running_jobs);
-	
+	sinfo->running_jobs = NULL;
+
 	if (sinfo->exiting_jobs != NULL)
 		free(sinfo->exiting_jobs);
-	
+	sinfo->exiting_jobs = NULL;
+
 	if (sinfo->user_counts != NULL)
 		free_counts_list(sinfo->user_counts);
 	sinfo->user_counts = NULL;
