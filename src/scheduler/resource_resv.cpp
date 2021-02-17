@@ -535,6 +535,7 @@ dup_resource_resv(resource_resv *oresresv, server_info *nsinfo, queue_info *nqin
 
 	if (!is_resource_resv_valid(oresresv, err)) {
 		schdlogerr(PBSEVENT_DEBUG2, PBS_EVENTCLASS_SCHED, LOG_DEBUG, oresresv->name, "Can't dup resresv", err);
+		free_schd_error(err);
 		return NULL;
 	}
 
@@ -623,6 +624,7 @@ dup_resource_resv(resource_resv *oresresv, server_info *nsinfo, queue_info *nqin
 	}
 	else  { /* error */
 		delete nresresv;
+		free_schd_error(err);
 		return NULL;
 	}
 #ifdef NAS /* localmod 034 */
@@ -632,6 +634,7 @@ dup_resource_resv(resource_resv *oresresv, server_info *nsinfo, queue_info *nqin
 	if (!is_resource_resv_valid(nresresv, err)) {
 		schdlogerr(PBSEVENT_DEBUG2, PBS_EVENTCLASS_SCHED, LOG_DEBUG, oresresv->name, "Failed to dup resresv", err);
 		delete nresresv;
+		free_schd_error(err);
 		return NULL;
 	}
 
@@ -1357,6 +1360,8 @@ set_resource_req(resource_req *req, const char *val)
 
 	/* if val is a string, req -> amount will be set to SCHD_INFINITY_RES */
 	req->amount = res_to_num(val, &(req->type));
+	
+	free(req->res_str);
 	req->res_str = string_dup(val);
 
 	if (req->def != NULL)

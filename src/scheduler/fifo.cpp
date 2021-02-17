@@ -714,6 +714,9 @@ scheduling_cycle(int sd, const sched_cmd *cmd)
 			 * information about the newly confirmed reservations
 			 */
 			end_cycle_tasks(sinfo);
+			free_server(sinfo);
+			/* Leaves dangling pointers in arrays like sinfo->jobs, but they will be recreated before used next cycle */
+			remove_finished_jobs(keep_sinfo);
 			/* Problem occurred confirming reservation, retry cycle */
 			if (rc < 0)
 				return -1;

@@ -941,6 +941,7 @@ query_job(struct batch_status *job, server_info *sinfo, resource_resv *prev_job,
 				resresv->qrank = -1;
 		}
 		else if (!strcmp(attrp->name, ATTR_server_inst_id)) {
+			free(resresv->job->svr_inst_id);
 			resresv->job->svr_inst_id = string_dup(attrp->value);
 			if (resresv->job->svr_inst_id == NULL) {
 				delete resresv;
@@ -1111,12 +1112,15 @@ query_job(struct batch_status *job, server_info *sinfo, resource_resv *prev_job,
 			resresv->job->max_run_subjobs = count;
 		else if (!strcmp(attrp->name, ATTR_execvnode)) {
 			nspec **tmp_nspec_arr;
+			free_nspecs(resresv->nspec_arr);
 			tmp_nspec_arr = parse_execvnode(attrp->value, sinfo, NULL);
 			resresv->nspec_arr = combine_nspec_array(tmp_nspec_arr);
 			free_nspecs(tmp_nspec_arr);
 
-			if (resresv->nspec_arr != NULL)
+			if (resresv->nspec_arr != NULL) {
+				free(resresv->ninfo_arr);
 				resresv->ninfo_arr = create_node_array_from_nspec(resresv->nspec_arr);
+			}
 		} else if (!strcmp(attrp->name, ATTR_l)) { /* resources requested*/
 			resreq = find_alloc_resource_req_by_str(resresv->resreq, attrp->resource);
 			if (resreq == NULL) {
@@ -5392,8 +5396,6 @@ void set_job_times(int pbs_sd, resource_resv *resresv, time_t server_time)
 		resresv->end = end;
 	}
 	resresv->duration = duration;
-
-	log_eventf(PBSEVENT_DEBUG, PBS_EVENTCLASS_JOB, LOG_DEBUG, resresv->name.c_str(), "start: %ld end: %ld duration: %ld", resresv->start, resresv->end, resresv->duration);
 }
 
 /**

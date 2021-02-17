@@ -265,9 +265,7 @@ query_nodes(int pbs_sd, server_info *sinfo)
 		if (found != sinfo->nodes_umap.end())
 			ninfo = found->second;
 		
-		if (cur_node->attribs != NULL) {
-			node_info *tmp_ninfo;
-			/* get node info from the batch_status */
+		if (cur_node->attribs != NULL) {			/* get node info from the batch_status */
 			if ((ninfo = query_node_info(cur_node, sinfo, ninfo)) == NULL) {
 				pbs_statfree(nodes);
 				if (diff_nodes != nodes)
@@ -439,7 +437,7 @@ query_node_info(struct batch_status *node, server_info *sinfo, node_info *prev_n
 					ninfo->res = res;
 
 				if (set_resource(res, attrp->value, RF_AVAIL) == 0) {
-					if (ninfo != prev_info)
+					if (ninfo != prev_ninfo)
 						delete ninfo;
 					ninfo = NULL;
 					break;
@@ -1436,8 +1434,9 @@ collect_resvs_on_nodes(node_info **ninfo_arr, resource_resv **resresv_arr, int s
 		return 0;
 
 	for (i = 0; ninfo_arr[i] != NULL; i++) {
+		free(ninfo_arr[i]->run_resvs_arr);
 		ninfo_arr[i]->run_resvs_arr = resource_resv_filter(resresv_arr, size,
-			check_resv_running_on_node, ninfo_arr[i]->name.c_str(), 0);
+								   check_resv_running_on_node, ninfo_arr[i]->name.c_str(), 0);
 		/* the count of running resvs on the node is set in query_reservations */
 	}
 	return 1;

@@ -363,7 +363,7 @@ query_server(status *pol, int pbs_sd, server_info *sinfo)
 			recreate_resdef = 1;
 
 		if (recreate_resdef) {
-			free(sinfo->nodesigs);
+			free_string_array(sinfo->nodesigs); // leaves danging pointers from the nodes.  This is OK, they'll be updated soon.
 			sinfo->nodesigs = NULL;
 			free(policy->resdef_to_check);
 			policy->resdef_to_check = new_resdef_to_check;
@@ -478,10 +478,8 @@ query_server(status *pol, int pbs_sd, server_info *sinfo)
 	for (i = 0; sinfo->nodes[i] != NULL; i++) {
 		node_info *ninfo = sinfo->nodes[i];
 		if (recreate_resdef) {
-			ninfo->nodesig = create_resource_signature(ninfo->res,
-				policy->resdef_to_check_no_hostvnode, ADD_ALL_BOOL);
-			ninfo->nodesig_ind = add_str_to_unique_array(&(sinfo->nodesigs),
-				ninfo->nodesig);
+			ninfo->nodesig = create_resource_signature(ninfo->res, policy->resdef_to_check_no_hostvnode, ADD_ALL_BOOL);
+			ninfo->nodesig_ind = add_str_to_unique_array(&(sinfo->nodesigs), ninfo->nodesig);
 		}
 
 		if(ninfo->has_ghost_job)
@@ -1393,6 +1391,10 @@ clear_server_info_for_query(server_info *sinfo)
 	if (sinfo->total_alljobcounts != NULL)
 		free_counts_list(sinfo->total_alljobcounts);
 	sinfo->total_alljobcounts = NULL;
+
+	if (sinfo->equiv_classes != NULL)
+		free_resresv_set_array(sinfo->equiv_classes);
+	sinfo->equiv_classes = NULL;
 
 #ifdef NAS
 			/* localmod 034 */
@@ -2452,7 +2454,6 @@ dup_server_info(server_info *osinfo)
 		for (i = 0; i < nsinfo->num_queues; i++) {
 			ret_val = add_queue_to_list(&nsinfo->queue_list, nsinfo->queues[i]);
 			if (ret_val == 0) {
-				nsinfo->fairshare = NULL;
 				free_server(nsinfo);
 				return NULL;
 			}
