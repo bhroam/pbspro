@@ -3417,7 +3417,7 @@ resources_avail_on_vnode(resource_req *specreq_cons, node_info *node,
 							set_current_aoe(node, resresv->aoename);
 						if (resresv->is_job) {
 							log_eventf(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_NOTICE, resresv->name,
-								"Vnode %s selected for provisioning with AOE %s", node->name, resresv->aoename);
+								"Vnode %s selected for provisioning with AOE %s", node->name.c_str(), resresv->aoename);
 						}
 					}
 
