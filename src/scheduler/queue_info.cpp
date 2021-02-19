@@ -227,9 +227,12 @@ query_queues(status *policy, int pbs_sd, server_info *sinfo)
 			}
 
 			if (ret != QUEUE_NOT_EXEC) {
-				clear_schd_error(sch_err);
-				set_schd_error_codes(sch_err, NOT_RUN, ret);
+				/* get all the jobs which reside in the queue */
+				qinfo->jobs = query_jobs(policy, pbs_sd, qinfo, qinfo->jobs, qinfo->name);
+
 				if (qinfo->is_ok_to_run == 0) {
+					clear_schd_error(sch_err);
+					set_schd_error_codes(sch_err, NOT_RUN, ret);
 					translate_fail_code(sch_err, comment, log_msg);
 					update_jobs_cant_run(pbs_sd, qinfo->jobs, NULL, sch_err, START_WITH_JOB);
 				} else {
@@ -241,9 +244,6 @@ query_queues(status *policy, int pbs_sd, server_info *sinfo)
 								qinfo->jobs[j]->can_not_run = 1;
 					}
 				}
-
-				/* get all the jobs which reside in the queue */
-				qinfo->jobs = query_jobs(policy, pbs_sd, qinfo, qinfo->jobs, qinfo->name);
 
 				for (j = 0; j < NUM_PEERS && conf.peer_queues[j].local_queue != NULL; j++) {
 					int peer_on = 1;

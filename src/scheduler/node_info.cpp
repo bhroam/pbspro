@@ -543,7 +543,7 @@ node_info::node_info(const std::string& nname): name(nname)
 
 	priority = 0;
 
-	rank = 0;
+	rank = get_sched_rank();
 
 	nodesig_ind = -1;
 

@@ -148,7 +148,7 @@ resource_resv::resource_resv(const std::string& rname): name(rname)
 	will_use_multinode = 0;
 
 	sch_priority = 0;
-	rank = 0;
+	rank = get_sched_rank();
 	qtime = 0;
 	qrank = 0;
 

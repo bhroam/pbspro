@@ -863,7 +863,6 @@ query_job(struct batch_status *job, server_info *sinfo, resource_resv *prev_job,
 			return NULL;
 		}
 
-		resresv->rank = get_sched_rank();
 		resresv->server = sinfo;
 
 		resresv->is_job = 1;
@@ -3743,16 +3742,11 @@ create_subjob_from_array(resource_resv *array, int index, const std::string& sub
 {
 	resource_resv *subjob;	/* job_info structure for new subjob */
 	range *tmp;			/* a tmp ptr to hold the queued_indices ptr */
-	schd_error *err;
 
 	if (array == NULL || array->job == NULL)
 		return NULL;
 
 	if (!array->job->is_array)
-		return NULL;
-
-	err = new_schd_error();
-	if (err == NULL)
 		return NULL;
 
 	subjob = dup_resource_resv(array, array->server, array->job->queue, subjob_name);
@@ -3769,10 +3763,9 @@ create_subjob_from_array(resource_resv *array, int index, const std::string& sub
 
 	array->job->queued_subjobs = tmp;
 
-	if (subjob == NULL) {
-		free_schd_error(err);
+	if (subjob == NULL)
 		return NULL;
-	}
+
 
 	subjob->job->is_begin = 0;
 	subjob->job->is_array = 0;
@@ -3782,9 +3775,8 @@ create_subjob_from_array(resource_resv *array, int index, const std::string& sub
 	subjob->job->array_index = index;
 	subjob->job->array_id = array->name;
 
-	subjob->rank =  get_sched_rank();
+	subjob->rank = get_sched_rank();
 
-	free_schd_error(err);
 	return subjob;
 }
 

@@ -293,10 +293,6 @@ query_reservations(int pbs_sd, server_info *sinfo, struct batch_status *resvs)
 			continue;
 		}
 
-
-		if (resresv->rank == 0)
-			resresv->rank = get_sched_rank();
-
 		resresv->aoename = getaoename(resresv->select);
 		resresv->eoename = geteoename(resresv->select);
 
