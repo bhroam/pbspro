@@ -591,7 +591,7 @@ perform_event(status *policy, timed_event *event)
 			resresv = (resource_resv *) event->event_ptr;
 			if (sim_run_update_resresv(policy, resresv, NULL, NO_ALLPART) <= 0) {
 				log_event(PBSEVENT_SCHED, PBS_EVENTCLASS_JOB, LOG_INFO,
-					event->name.c_str(), "Simulation: Event failed to be run");
+					event->name, "Simulation: Event failed to be run");
 				ret = 0;
 			}
 			else {
@@ -616,7 +616,7 @@ perform_event(status *policy, timed_event *event)
 			break;
 		default:
 			log_event(PBSEVENT_SCHED, PBS_EVENTCLASS_JOB, LOG_INFO,
-				event->name.c_str(), "Simulation: Unknown event type");
+				event->name, "Simulation: Unknown event type");
 			ret = 0;
 	}
 	if (event->event_func != NULL)
@@ -624,7 +624,7 @@ perform_event(status *policy, timed_event *event)
 
 	if (ret)
 		log_eventf(PBSEVENT_DEBUG3, PBS_EVENTCLASS_JOB, LOG_DEBUG,
-			event->name.c_str(), "Simulation: %s [%s]", logbuf, timebuf);
+			event->name, "Simulation: %s [%s]", logbuf, timebuf);
 	return ret;
 }
 
@@ -1022,7 +1022,7 @@ dup_event_list(event_list *oelist, server_info *nsinfo)
 						      oelist->next_event->event_time);
 		if (nelist->next_event == NULL) {
 			log_event(PBSEVENT_SCHED, PBS_EVENTCLASS_SCHED, LOG_WARNING,
-			oelist->next_event->name.c_str(), "can't find next event in duplicated list");
+			oelist->next_event->name, "can't find next event in duplicated list");
 			free_event_list(nelist);
 			return NULL;
 		}
@@ -1033,7 +1033,7 @@ dup_event_list(event_list *oelist, server_info *nsinfo)
 			find_timed_event(nelist->events, oelist->first_run_event->name, TIMED_RUN_EVENT,
 					 oelist->first_run_event->event_time);
 		if (nelist->first_run_event == NULL) {
-			log_event(PBSEVENT_SCHED, PBS_EVENTCLASS_SCHED, LOG_WARNING, oelist->first_run_event->name.c_str(),
+			log_event(PBSEVENT_SCHED, PBS_EVENTCLASS_SCHED, LOG_WARNING, oelist->first_run_event->name,
 				"can't find first run event event in duplicated list");
 			free_event_list(nelist);
 			return NULL;
@@ -1322,7 +1322,7 @@ find_event_ptr(timed_event *ote, server_info *nsinfo)
 					    oep->resresv_ind, oep->rank);
 
 			if (event_ptr == NULL) {
-				log_event(PBSEVENT_SCHED, PBS_EVENTCLASS_SCHED, LOG_WARNING, ote->name.c_str(),
+				log_event(PBSEVENT_SCHED, PBS_EVENTCLASS_SCHED, LOG_WARNING, ote->name,
 					"Event can't be found in new server to be duplicated.");
 				event_ptr = NULL;
 			}

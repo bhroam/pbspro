@@ -337,7 +337,7 @@ shrink_to_boundary(status *policy, server_info *sinfo,
 		if (ns_arr && orig_duration > njob->duration) {
 			char timebuf[TIMEBUF_SIZE];
 			convert_duration_to_str(njob->duration, timebuf, TIMEBUF_SIZE);
-			log_eventf(PBSEVENT_SCHED, PBS_EVENTCLASS_JOB, LOG_NOTICE, njob->name.c_str(),
+			log_eventf(PBSEVENT_SCHED, PBS_EVENTCLASS_JOB, LOG_NOTICE, njob->name,
 				"Considering shrinking job to duration=%s, due to a prime/dedicated time conflict", timebuf);
 		}
 	}
@@ -534,12 +534,12 @@ shrink_to_run_event(status *policy, server_info *sinfo,
 		}
 	}
 	if (ns_arr && njob->duration == njob->min_duration)
-		log_event(PBSEVENT_SCHED, PBS_EVENTCLASS_JOB, LOG_NOTICE, njob->name.c_str(),
+		log_event(PBSEVENT_SCHED, PBS_EVENTCLASS_JOB, LOG_NOTICE, njob->name,
 			"Considering shrinking job to it's minimum walltime");
 	else if (ns_arr && orig_duration > njob->duration) {
 		char timebuf[TIMEBUF_SIZE];
 		convert_duration_to_str(njob->duration, timebuf, TIMEBUF_SIZE);
-		log_eventf(PBSEVENT_SCHED, PBS_EVENTCLASS_JOB, LOG_NOTICE, njob->name.c_str(),
+		log_eventf(PBSEVENT_SCHED, PBS_EVENTCLASS_JOB, LOG_NOTICE, njob->name,
 			"Considering shrinking job to duration=%s, due to a reservation/top job conflict", timebuf);
 	}
 	return (ns_arr);

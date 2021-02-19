@@ -141,7 +141,7 @@ void job_state_count_add(state_count *sc, resource_resv *job, int count)
 		sc->finished += count;
 	else {
 		sc->invalid += count;
-		log_event(PBSEVENT_JOB, PBS_EVENTCLASS_JOB, LOG_INFO, job->name.c_str(), "Job in unknown state");
+		log_event(PBSEVENT_JOB, PBS_EVENTCLASS_JOB, LOG_INFO, job->name, "Job in unknown state");
 	}
 	sc->total += count;
 }

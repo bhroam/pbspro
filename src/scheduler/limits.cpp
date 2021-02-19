@@ -2557,9 +2557,8 @@ check_server_max_res_soft(server_info *si, queue_info *qi, resource_resv *rr)
 		else
 			used = used_res->amount;
 
-		log_eventf(PBSEVENT_DEBUG4, PBS_EVENTCLASS_JOB, LOG_DEBUG, __func__,
-			"%s max_res_soft.%s %.1lf, used %.1lf",
-			rr->name.c_str(), res->name, max_res_soft, used);
+		log_eventf(PBSEVENT_DEBUG4, PBS_EVENTCLASS_JOB, LOG_DEBUG, rr->name,
+			"max_res_soft.%s %.1lf, used %.1lf", res->name, max_res_soft, used);
 
 		if (max_res_soft < used) {
 			if (used_res != NULL)

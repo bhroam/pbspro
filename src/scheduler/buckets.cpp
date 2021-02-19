@@ -576,17 +576,17 @@ log_chunk_map_array(resource_resv *resresv, chunk_map **cmap) {
 	for (i = 0; cmap[i] != NULL; i++) {
 		int total_chunks = 0;
 
-		log_eventf(PBSEVENT_DEBUG3, PBS_EVENTCLASS_JOB, LOG_DEBUG, resresv->name.c_str(), "Chunk: %s", cmap[i]->chk->str_chunk);
+		log_eventf(PBSEVENT_DEBUG3, PBS_EVENTCLASS_JOB, LOG_DEBUG, resresv->name, "Chunk: %s", cmap[i]->chk->str_chunk);
 
 		for (j = 0; cmap[i]->bkt_cnts[j] != NULL; j++) {
 			int chunk_count;
 			node_bucket_count *nbc = cmap[i]->bkt_cnts[j];
 			chunk_count = (nbc->bkt->free_pool->truth_ct + nbc->bkt->busy_later_pool->truth_ct) * nbc->chunk_count;
-			log_eventf(PBSEVENT_DEBUG3, PBS_EVENTCLASS_JOB, LOG_DEBUG, resresv->name.c_str(), "Bucket %s can fit %d chunks", nbc->bkt->name, chunk_count);
+			log_eventf(PBSEVENT_DEBUG3, PBS_EVENTCLASS_JOB, LOG_DEBUG, resresv->name, "Bucket %s can fit %d chunks", nbc->bkt->name, chunk_count);
 			total_chunks += chunk_count;
 		}
 		if (total_chunks < cmap[i]->chk->num_chunks)
-			log_eventf(PBSEVENT_DEBUG3, PBS_EVENTCLASS_JOB, LOG_DEBUG, resresv->name.c_str(),
+			log_eventf(PBSEVENT_DEBUG3, PBS_EVENTCLASS_JOB, LOG_DEBUG, resresv->name,
 				"Found %d out of %d chunks needed", total_chunks, cmap[i]->chk->num_chunks);
 	}
 }
@@ -1104,7 +1104,7 @@ check_node_buckets(status *policy, server_info *sinfo, queue_info *qinfo, resour
 
 		for (i = 0; nodepart[i] != NULL; i++) {
 			nspec **nspecs;
-			log_eventf(PBSEVENT_DEBUG3, PBS_EVENTCLASS_JOB, LOG_DEBUG, resresv->name.c_str(),
+			log_eventf(PBSEVENT_DEBUG3, PBS_EVENTCLASS_JOB, LOG_DEBUG, resresv->name,
 				"Evaluating placement set: %s", nodepart[i]->name);
 
 			clear_schd_error(err);
@@ -1124,7 +1124,7 @@ check_node_buckets(status *policy, server_info *sinfo, queue_info *qinfo, resour
 				return NULL;
 			}
 			else {
-				log_event(PBSEVENT_DEBUG3, PBS_EVENTCLASS_JOB, LOG_DEBUG, resresv->name.c_str(), "Request won't fit into any placement sets, will use all nodes");
+				log_event(PBSEVENT_DEBUG3, PBS_EVENTCLASS_JOB, LOG_DEBUG, resresv->name, "Request won't fit into any placement sets, will use all nodes");
 				return map_buckets(policy, sinfo->buckets, resresv, err);
 			}
 		} else

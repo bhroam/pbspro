@@ -1720,7 +1720,7 @@ update_resresv_on_end(resource_resv *resresv, const char *job_state)
 							}
 						}
 						else
-							log_eventf(PBSEVENT_DEBUG, PBS_EVENTCLASS_SERVER, LOG_DEBUG, resresv->name.c_str(),
+							log_eventf(PBSEVENT_DEBUG, PBS_EVENTCLASS_SERVER, LOG_DEBUG, resresv->name,
 								"Can't find occurrence of standing reservation at time %ld", next_occr_time);
 					}
 				}

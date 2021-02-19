@@ -409,7 +409,7 @@ query_node_info(struct batch_status *node, server_info *sinfo, node_info *prev_n
 		else if (!strcmp(attrp->name, ATTR_NODE_Sharing)) {
 			ninfo->sharing = str_to_vnode_sharing(attrp->value);
 			if (ninfo->sharing == VNS_UNSET) {
-				log_eventf(PBSEVENT_SCHED, PBS_EVENTCLASS_NODE, LOG_INFO, ninfo->name.c_str(),
+				log_eventf(PBSEVENT_SCHED, PBS_EVENTCLASS_NODE, LOG_INFO, ninfo->name,
 					"Unknown sharing type: %s using default shared", attrp->value);
 				ninfo->sharing = VNS_DFLT_SHARED;
 			}
@@ -423,7 +423,7 @@ query_node_info(struct batch_status *node, server_info *sinfo, node_info *prev_n
 					break;
 				default:
 					log_eventf(PBSEVENT_SCHED, PBS_EVENTCLASS_NODE, LOG_INFO,
-						ninfo->name.c_str(), "Unknown license type: %c", attrp->value[0]);
+						ninfo->name, "Unknown license type: %c", attrp->value[0]);
 			}
 		} else if (!strcmp(attrp->name, ATTR_rescavail)) {
 			if (!strcmp(attrp->resource, ND_RESC_LicSignature)) {
@@ -771,8 +771,7 @@ set_node_info_state(node_info *ninfo, const char *state)
 				tok++;
 
 			if (add_node_state(ninfo, tok) == 1)
-				log_eventf(PBSEVENT_SCHED, PBS_EVENTCLASS_NODE, LOG_INFO,
-					ninfo->name.c_str(), "Unknown Node State: %s", tok);
+				log_eventf(PBSEVENT_SCHED, PBS_EVENTCLASS_NODE, LOG_INFO, ninfo->name, "Unknown Node State: %s", tok);
 
 			tok = strtok_r(NULL, ",", &saveptr);
 		}
@@ -837,7 +836,7 @@ remove_node_state(node_info *ninfo, const char *state)
 	else if (!strcmp(state, ND_maintenance))
 		ninfo->is_maintenance = 0;
 	else {
-		log_eventf(PBSEVENT_SCHED, PBS_EVENTCLASS_NODE, LOG_INFO, ninfo->name.c_str(),
+		log_eventf(PBSEVENT_SCHED, PBS_EVENTCLASS_NODE, LOG_INFO, ninfo->name,
 			   "Unknown Node State: %s on remove operation", state);
 		return 1;
 	}
@@ -912,7 +911,7 @@ add_node_state(node_info *ninfo, const char *state)
 			ninfo->is_sleeping = 1;
 	} else {
 		log_eventf(PBSEVENT_SCHED, PBS_EVENTCLASS_NODE, LOG_INFO,
-			ninfo->name.c_str(), "Unknown Node State: %s on add operation", state);
+			ninfo->name, "Unknown Node State: %s on add operation", state);
 		return 1;
 	}
 
@@ -1489,7 +1488,7 @@ collect_jobs_on_nodes(node_info **ninfo_arr, resource_resv **resresv_arr, int si
 			 */
 			if (size == 0 && (flags & DETECT_GHOST_JOBS)) {
 				ninfo_arr[i]->has_ghost_job = 1;
-				log_event(PBSEVENT_DEBUG2, PBS_EVENTCLASS_NODE, LOG_DEBUG, ninfo_arr[i]->name.c_str(),
+				log_event(PBSEVENT_DEBUG2, PBS_EVENTCLASS_NODE, LOG_DEBUG, ninfo_arr[i]->name,
 					  "Jobs reported running on node no longer exists or are not in running state");
 			}
 
@@ -1536,7 +1535,7 @@ collect_jobs_on_nodes(node_info **ninfo_arr, resource_resv **resresv_arr, int si
 					 * recalculated later.
 					 */
 					ninfo_arr[i]->has_ghost_job = 1;
-					log_eventf(PBSEVENT_DEBUG2, PBS_EVENTCLASS_NODE, LOG_DEBUG, ninfo_arr[i]->name.c_str(),
+					log_eventf(PBSEVENT_DEBUG2, PBS_EVENTCLASS_NODE, LOG_DEBUG, ninfo_arr[i]->name,
 						"Job %s reported running on node no longer exists or is not in running state",
 						ninfo_arr[i]->jobs[j]);
 				}
@@ -1815,7 +1814,7 @@ update_node_on_end(node_info *ninfo, resource_resv *resresv, const char *job_sta
 							res = res->indirect_res;
 						res->assigned -= resreq->amount;
 						if (res->assigned < 0) {
-							log_eventf(PBSEVENT_DEBUG, PBS_EVENTCLASS_NODE, LOG_DEBUG, ninfo->name.c_str(),
+							log_eventf(PBSEVENT_DEBUG, PBS_EVENTCLASS_NODE, LOG_DEBUG, ninfo->name,
 								"%s turned negative %.2lf, setting it to 0", res->name, res->assigned);
 							res->assigned = 0;
 						}
@@ -2195,7 +2194,7 @@ eval_selspec(status *policy, selspec *spec, place *placespec,
 	for (i = 0; nodepart[i] != NULL && rc == 0; i++) {
 		clear_schd_error(err);
 		if (resresv_can_fit_nodepart(policy, nodepart[i], resresv, flags, err)) {
-			log_eventf(PBSEVENT_DEBUG3, PBS_EVENTCLASS_JOB, LOG_DEBUG, resresv->name.c_str(),
+			log_eventf(PBSEVENT_DEBUG3, PBS_EVENTCLASS_JOB, LOG_DEBUG, resresv->name,
 				"Evaluating placement set: %s", nodepart[i]->name);
 			if (nodepart[i]->ok_break)
 				pass_flags |= EVAL_OKBREAK;
@@ -2221,7 +2220,7 @@ eval_selspec(status *policy, selspec *spec, place *placespec,
 		}
 		else {
 			translate_fail_code(err, NULL, reason);
-			log_eventf(PBSEVENT_DEBUG3, PBS_EVENTCLASS_JOB, LOG_DEBUG, resresv->name.c_str(),
+			log_eventf(PBSEVENT_DEBUG3, PBS_EVENTCLASS_JOB, LOG_DEBUG, resresv->name,
 				"Placement set %s is too small: %s", nodepart[i]->name, reason);
 			set_schd_error_codes(err, NOT_RUN, SET_TOO_SMALL);
 			set_schd_error_arg(err, ARG1, "Placement");
@@ -2243,7 +2242,7 @@ eval_selspec(status *policy, selspec *spec, place *placespec,
 
 	if (!can_fit) {
 		if (flags & SPAN_PSETS) {
-			log_event(PBSEVENT_DEBUG3, PBS_EVENTCLASS_JOB, LOG_DEBUG, resresv->name.c_str(),
+			log_event(PBSEVENT_DEBUG3, PBS_EVENTCLASS_JOB, LOG_DEBUG, resresv->name,
 				"Request won't fit into any placement sets, will use all nodes");
 			resresv->can_not_fit = 1;
 			if (resresv->server->has_multi_vnode && ok_break_chunk(resresv, ninfo_arr))
@@ -2400,7 +2399,7 @@ eval_placement(status *policy, selspec *spec, node_info **ninfo_arr, place *pl,
 
 			rc = any_succ_rc = 0;
 			log_eventf(PBSEVENT_DEBUG3, PBS_EVENTCLASS_NODE, LOG_DEBUG,
-				resresv->name.c_str(), "Evaluating host %s", hostsets[i]->res_val);
+				resresv->name, "Evaluating host %s", hostsets[i]->res_val);
 
 			/* Pack on One Host Placement:
 			 * place all chunks on one host.  This is done with a call to
@@ -2477,7 +2476,7 @@ eval_placement(status *policy, selspec *spec, node_info **ninfo_arr, place *pl,
 							translate_fail_code(err, NULL, reason);
 
 						log_eventf(PBSEVENT_DEBUG3, PBS_EVENTCLASS_JOB, LOG_DEBUG,
-							resresv->name.c_str(), "Insufficient host-level resources %s", reason);
+							resresv->name, "Insufficient host-level resources %s", reason);
 
 						/* don't be so specific in the comment since it's only for a single host */
 						set_schd_error_arg(err, ARG1, NULL);
@@ -2543,7 +2542,7 @@ eval_placement(status *policy, selspec *spec, node_info **ninfo_arr, place *pl,
 							translate_fail_code(err, NULL, reason);
 
 						log_eventf(PBSEVENT_DEBUG3, PBS_EVENTCLASS_JOB, LOG_DEBUG,
-							resresv->name.c_str(), "Insufficient host-level resources %s", reason);
+							resresv->name, "Insufficient host-level resources %s", reason);
 
 						/* don't be so specific in the comment since it's only for a single host */
 						set_schd_error_arg(err, ARG1, NULL);
@@ -2640,7 +2639,7 @@ eval_placement(status *policy, selspec *spec, node_info **ninfo_arr, place *pl,
 							translate_fail_code(err, NULL, reason);
 
 						log_eventf(PBSEVENT_DEBUG3, PBS_EVENTCLASS_JOB, LOG_DEBUG,
-							resresv->name.c_str(), "Insufficient host-level resources %s", reason);
+							resresv->name, "Insufficient host-level resources %s", reason);
 #ifdef NAS /* localmod 998 */
 						set_schd_error_codes(err, NOT_RUN, RESOURCES_INSUFFICIENT);
 						set_schd_error_arg(err, ARG1, "Host");
@@ -2668,7 +2667,7 @@ eval_placement(status *policy, selspec *spec, node_info **ninfo_arr, place *pl,
 				free_nodes(dup_ninfo_arr);
 			}
 			else {
-				log_eventf(PBSEVENT_DEBUG, PBS_EVENTCLASS_NODE, LOG_DEBUG, resresv->name.c_str(),
+				log_eventf(PBSEVENT_DEBUG, PBS_EVENTCLASS_NODE, LOG_DEBUG, resresv->name,
 					"Unexpected Placement: not %s, %s, %s, or %s",
 					PLACE_Scatter, PLACE_VScatter, PLACE_Pack, PLACE_Free);
 			}
@@ -2822,7 +2821,7 @@ eval_complex_selspec(status *policy, selspec *spec, node_info **ninfo_arr, place
 	 * as no multi-node jobs
 	 */
 	resresv->will_use_multinode = 1;
-	log_event(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_DEBUG, resresv->name.c_str(),
+	log_event(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_DEBUG, resresv->name,
 		"Used multiple nodes with no_multinode_job=true: Resatisfy");
 	if (nspec_arr != NULL)
 		empty_nspec_array(*nspec_arr);
@@ -2926,8 +2925,7 @@ eval_simple_selspec(status *policy, chunk *chk, node_info **pninfo_arr,
 
 	str_chunk = &chk->str_chunk[i];
 
-	log_eventf(PBSEVENT_DEBUG3, PBS_EVENTCLASS_NODE, LOG_DEBUG,
-		resresv->name.c_str(), "Evaluating subchunk: %s", str_chunk);
+	log_eventf(PBSEVENT_DEBUG3, PBS_EVENTCLASS_NODE, LOG_DEBUG, resresv->name, "Evaluating subchunk: %s", str_chunk);
 
 	/* We're duplicating the entire list here.  This list is organized so that
 	 * all non-consumable resources come before the consumable ones.  After
@@ -3081,8 +3079,7 @@ eval_simple_selspec(status *policy, chunk *chk, node_info **pninfo_arr,
 			}
 
 		} else {
-			log_event(PBSEVENT_DEBUG3, PBS_EVENTCLASS_NODE, LOG_DEBUG,
-				ninfo_arr[i]->name.c_str(), "Node allocated to job");
+			log_event(PBSEVENT_DEBUG3, PBS_EVENTCLASS_NODE, LOG_DEBUG, ninfo_arr[i]->name, "Node allocated to job");
 		}
 	}
 
@@ -3098,7 +3095,7 @@ eval_simple_selspec(status *policy, chunk *chk, node_info **pninfo_arr,
 
 	if (chunks_found) {
 		log_eventf(PBSEVENT_DEBUG3, PBS_EVENTCLASS_NODE, LOG_DEBUG,
-			resresv->name.c_str(), "Allocated one subchunk: %s", str_chunk);
+			resresv->name, "Allocated one subchunk: %s", str_chunk);
 		clear_schd_error(err);
 		return 1;
 	}
@@ -3113,7 +3110,7 @@ eval_simple_selspec(status *policy, chunk *chk, node_info **pninfo_arr,
 		nsa[i] = NULL;
 	}
 
-	log_eventf(PBSEVENT_DEBUG3, PBS_EVENTCLASS_NODE, LOG_DEBUG, resresv->name.c_str(),
+	log_eventf(PBSEVENT_DEBUG3, PBS_EVENTCLASS_NODE, LOG_DEBUG, resresv->name,
 		"Failed to satisfy subchunk: %s", chk->str_chunk);
 
 	/* If the last node we looked at was fine, err would be empty.
@@ -3420,7 +3417,7 @@ resources_avail_on_vnode(resource_req *specreq_cons, node_info *node,
 							set_current_aoe(node, resresv->aoename);
 						if (resresv->is_job) {
 							log_eventf(PBSEVENT_DEBUG2, PBS_EVENTCLASS_JOB, LOG_NOTICE, resresv->name,
-								"Vnode %s selected for provisioning with AOE %s", node->name.c_str(), resresv->aoename);
+								"Vnode %s selected for provisioning with AOE %s", node->name, resresv->aoename);
 						}
 					}
 
@@ -3476,7 +3473,7 @@ resources_avail_on_vnode(resource_req *specreq_cons, node_info *node,
 					/* use tmpreq to wrap the amount so we can use res_to_str */
 					tmpreq.amount = amount;
 
-					log_eventf(PBSEVENT_DEBUG3, PBS_EVENTCLASS_NODE, LOG_DEBUG, node->name.c_str(),
+					log_eventf(PBSEVENT_DEBUG3, PBS_EVENTCLASS_NODE, LOG_DEBUG, node->name,
 						"vnode allocated %s=%s", req->name, res_to_str(&tmpreq, RF_REQUEST));
 
 					allocated = 1;
@@ -4565,7 +4562,7 @@ reorder_nodes(node_info **nodes, resource_resv *resresv)
 			cmp_aoename = string_dup(resresv->aoename);
 			qsort(nptr, nsize, sizeof(node_info *), cmp_aoe);
 
-			log_eventf(PBSEVENT_DEBUG3, PBS_EVENTCLASS_JOB, LOG_DEBUG, resresv->name.c_str(),
+			log_eventf(PBSEVENT_DEBUG3, PBS_EVENTCLASS_JOB, LOG_DEBUG, resresv->name,
 				"Re-sorted the nodes on aoe %s, since aoe was requested", resresv->aoename);
 
 			return nptr;
@@ -4662,8 +4659,7 @@ ok_break_chunk(resource_resv *resresv, node_info **nodes)
 			}
 		}
 		else {
-			log_event(PBSEVENT_SCHED, PBS_EVENTCLASS_NODE, LOG_WARNING,
-				nodes[i]->name.c_str(), "Node has no host resource");
+			log_event(PBSEVENT_SCHED, PBS_EVENTCLASS_NODE, LOG_WARNING, nodes[i]->name, "Node has no host resource");
 		}
 	}
 
