@@ -160,13 +160,9 @@ query_queues(status *policy, int pbs_sd, server_info *sinfo)
 		return NULL;
 	}
 
-
-	cur_queue = queues;
-
-	while (cur_queue != NULL) {
+	for (cur_queue = queues; cur_queue != NULL; cur_queue = cur_queue->next)
 		num_queues++;
-		cur_queue = cur_queue->next;
-	}
+
 
 	if ((qinfo_arr = static_cast<queue_info **>(malloc(sizeof(queue_info *) * (num_queues + 1)))) == NULL) {
 		log_err(errno, __func__, MEM_ERR_MSG);
@@ -182,6 +178,12 @@ query_queues(status *policy, int pbs_sd, server_info *sinfo)
 		qinfo = find_queue_info(sinfo->queues, cur_queue->name);
 		if (qinfo != NULL)
 			clear_queue_info_for_query(qinfo);
+		
+		if (cur_queue->attribs == NULL) { // queue deleted
+			free_queue_info(qinfo);
+			continue;
+		}
+
 		/* convert queue information from batch_status to queue_info */
 		if ((qinfo = query_queue_info(policy, cur_queue, sinfo, qinfo)) == NULL) {
 			free_schd_error(sch_err);
@@ -368,8 +370,10 @@ query_queue_info(status *policy, struct batch_status *queue, server_info *sinfo,
 		if ((qinfo = new_queue_info(1)) == NULL)
 			return NULL;
 
-		if (qinfo->liminfo == NULL)
+		if (qinfo->liminfo == NULL) {
+			free_queue_info(qinfo);
 			return NULL;
+		}
 
 		if ((qinfo->name = string_dup(queue->name)) == NULL) {
 			free_queue_info(qinfo);
@@ -403,7 +407,6 @@ query_queue_info(status *policy, struct batch_status *queue, server_info *sinfo,
 			if (attrp->value != NULL) {
 				qinfo->partition = string_dup(attrp->value);
 				if (qinfo->partition == NULL) {
-					log_err(errno, __func__, MEM_ERR_MSG);
 					free_queue_info(qinfo);
 					return NULL;
 				}

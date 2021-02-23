@@ -821,8 +821,18 @@ query_jobs(status *policy, int pbs_sd, queue_info *qinfo, resource_resv **pjobs,
 			resresv->can_not_run = 0;
 
 		if (resresv != job) {
-			resresv_arr = static_cast<resource_resv **>(add_ptr_to_array(resresv_arr, resresv));
-			qinfo->server->jobs_umap[resresv->name] = resresv;
+			resource_resv **tmp_resresv_arr;
+			tmp_resresv_arr = static_cast<resource_resv **>(add_ptr_to_array(resresv_arr, resresv));
+			if (tmp_resresv_arr != NULL) {
+				resresv_arr = tmp_resresv_arr;
+				qinfo->server->jobs_umap[resresv->name] = resresv;
+			} else {
+				free_schd_error(err);
+				delete resresv;
+				free_resource_resv_array(resresv_arr);
+				pbs_statfree(jobs);
+				return NULL;
+			}
 		}
 	}
 	free_schd_error(err);
@@ -1047,7 +1057,7 @@ query_job(struct batch_status *job, server_info *sinfo, resource_resv *prev_job,
 			}
 
 		} else if (!strcmp(attrp->name, ATTR_array_id))
-			resresv->job->array_id = string_dup(attrp->value);
+			resresv->job->array_id = attrp->value;
 		else if (!strcmp(attrp->name, ATTR_node_set)) {
 			free_string_array(resresv->node_set_str);
 			if (attrp->value == NULL)
@@ -3748,9 +3758,6 @@ create_subjob_from_array(resource_resv *array, int index, const std::string& sub
 
 	if (!array->job->is_array)
 		return NULL;
-
-	subjob = dup_resource_resv(array, array->server, array->job->queue, subjob_name);
-
 	/* so we don't dup the queued_indices for the subjob */
 	tmp = array->job->queued_subjobs;
 	array->job->queued_subjobs = NULL;

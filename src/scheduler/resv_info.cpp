@@ -1161,7 +1161,7 @@ check_new_reservations(status *policy, int pbs_sd, resource_resv **resvs, server
 	qsort(sinfo->resvs, sinfo->num_resvs, sizeof(resource_resv*), cmp_resv_state);
 
 	for (i = 0; sinfo->resvs[i] != NULL; i++) {
-		if (sinfo->resvs[i]->resv ==NULL) {
+		if (sinfo->resvs[i]->resv == NULL) {
 			log_event(PBSEVENT_RESV, PBS_EVENTCLASS_RESV, LOG_INFO, sinfo->resvs[i]->name,
 				"Error determining if reservation can be confirmed: "
 				"Could not find the reservation.");
@@ -1306,7 +1306,7 @@ check_new_reservations(status *policy, int pbs_sd, resource_resv **resvs, server
 					nresv_copy->start = nresv->resv->occr_start_arr[j];
 
 					/* update start time, duration, and execvnodes of the occurrence */
-					nresv_copy->end = nresv_copy->start + nresv_copy->duration ;
+					nresv_copy->end = nresv_copy->start + nresv_copy->duration;
 
 					/* Only add the occurrence to the real universe if we are not
 					 * processing a degraded reservation as otherwise, the resources

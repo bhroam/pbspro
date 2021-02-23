@@ -362,7 +362,7 @@ query_server(status *pol, int pbs_sd, server_info *sinfo)
 			recreate_resdef = 1;
 
 		if (recreate_resdef) {
-			free_string_array(sinfo->nodesigs); // leaves danging pointers from the nodes.  This is OK, they'll be updated soon.
+			free(sinfo->nodesigs);
 			sinfo->nodesigs = NULL;
 			free(policy->resdef_to_check);
 			policy->resdef_to_check = new_resdef_to_check;
@@ -407,6 +407,7 @@ query_server(status *pol, int pbs_sd, server_info *sinfo)
 		for (i = 0; sinfo->running_jobs[i] != NULL; i++) {
 			cts = find_alloc_counts(sinfo->user_counts,
 				sinfo->running_jobs[i]->user);
+
 			if (sinfo->user_counts == NULL)
 				sinfo->user_counts = cts;
 
@@ -477,6 +478,7 @@ query_server(status *pol, int pbs_sd, server_info *sinfo)
 	for (i = 0; sinfo->nodes[i] != NULL; i++) {
 		node_info *ninfo = sinfo->nodes[i];
 		if (recreate_resdef) {
+			free(ninfo->nodesig);
 			ninfo->nodesig = create_resource_signature(ninfo->res, policy->resdef_to_check_no_hostvnode, ADD_ALL_BOOL);
 			ninfo->nodesig_ind = add_str_to_unique_array(&(sinfo->nodesigs), ninfo->nodesig);
 		}
@@ -1386,7 +1388,7 @@ clear_server_info_for_query(server_info *sinfo)
 		free_counts_list(sinfo->user_counts);
 	sinfo->user_counts = NULL;
 
-	if (sinfo->user_counts != NULL)
+	if (sinfo->group_counts != NULL)
 		free_counts_list(sinfo->group_counts);
 	sinfo->group_counts = NULL;
 

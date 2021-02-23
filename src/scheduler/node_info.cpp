@@ -266,8 +266,12 @@ query_nodes(int pbs_sd, server_info *sinfo)
 		if (cur_node->attribs != NULL) {			/* get node info from the batch_status */
 			if ((ninfo = query_node_info(cur_node, sinfo, ninfo)) == NULL) {
 				pbs_statfree(nodes);
+				pbs_statfree(prev_nodes);
+				prev_nodes = NULL;
 				if (diff_nodes != nodes)
 					pbs_statfree(diff_nodes);
+				if (ninfo_arr != sinfo->nodes)
+					free_nodes(ninfo_arr);
 				return NULL;
 			}
 			ninfo->num_jobs = 0;
@@ -492,7 +496,11 @@ query_node_info(struct batch_status *node, server_info *sinfo, node_info *prev_n
 		} else if (!strcmp(attrp->name, ATTR_NODE_last_used_time)) {
 			ninfo->last_used_time = count;
 		} else if (!strcmp(attrp->name, ATTR_NODE_resvs)) {
-			ninfo->resvs = break_comma_list(attrp->value);
+			free_string_array(ninfo->resvs);
+			if (attrp->value != NULL)
+				ninfo->resvs = break_comma_list(attrp->value);
+			else
+				ninfo->resvs = NULL;
 		}
 	}
 
