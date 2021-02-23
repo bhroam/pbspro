@@ -493,6 +493,8 @@ query_server(status *pol, int pbs_sd, server_info *sinfo)
 			free_te_list(ninfo->node_events);
 			ninfo->node_events = NULL;
 		}
+		free(ninfo->np_arr);
+		ninfo->np_arr = NULL;
 	}
 	sinfo->unordered_nodes[i] = NULL;
 

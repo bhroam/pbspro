@@ -218,11 +218,15 @@ query_reservations(int pbs_sd, server_info *sinfo, struct batch_status *resvs)
 				presresv = NULL;
 			} else if (presresv->resv->is_standing) {
 				while (presresv != NULL && presresv->end != UNSPECIFIED && presresv->end < sinfo->server_time) {
+					resource_resv *tmp_resresv;
 					presresv->resv->resv_queue->resv = NULL;
 					remove_ptr_from_array(resresv_arr, presresv);
+					tmp_resresv = find_resource_resv(resresv_arr, cur_resv->name);
+					for (int i = 0; presresv->resv->resv_queue->jobs[i] != NULL; i++)
+						presresv->resv->resv_queue->jobs[i]->job->resv = tmp_resresv;
 					delete presresv;
 					sinfo->num_resvs--;
-					presresv = find_resource_resv(resresv_arr, cur_resv->name);
+					presresv = tmp_resresv;
 				}
 				if (presresv == NULL)
 					ignore_resv = 1;
